@@ -1,0 +1,59 @@
+@baseUrl = http://localhost:5087
+
+### 1. Get All Themes (Public)
+GET {{baseUrl}}/api/themes
+Accept: application/json
+
+### 2. Get Public Menu by Token (Public)
+GET {{baseUrl}}/api/public/menus/demo-pizza-token
+Accept: application/json
+
+### 3. Get Public Digital Card (Public)
+GET {{baseUrl}}/api/public/personal-qr/card-jane
+Accept: application/json
+
+### 4. Resolve QR Token Type (Public)
+GET {{baseUrl}}/api/public/qr/demo-pizza-token/type
+Accept: application/json
+
+### 5. Login as Super Admin (Public)
+# @name adminLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@test.com",
+  "password": "password123"
+}
+
+### 6. Get Admin Profile (Requires Auth)
+@adminToken = {{adminLogin.response.body.token}}
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{adminToken}}
+
+### 7. Get All Clients (Super Admin Only)
+GET {{baseUrl}}/api/clients
+Authorization: Bearer {{adminToken}}
+
+### 8. Login as Restaurant Client (The Pizza House)
+# @name clientLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@pizzahouse.com",
+  "password": "password123"
+}
+
+### 9. Get Restaurant Business Details (Client Only)
+@clientToken = {{clientLogin.response.body.token}}
+GET {{baseUrl}}/api/restaurant-menu/business
+Authorization: Bearer {{clientToken}}
+
+### 10. Get Menu Categories (Client Only)
+GET {{baseUrl}}/api/categories
+Authorization: Bearer {{clientToken}}
+
+### 11. Get Menu Dishes (Client Only)
+GET {{baseUrl}}/api/dishes
+Authorization: Bearer {{clientToken}}
