@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import AdminSidebar from '../components/AdminSidebar';
-import { auth } from '../js/auth';
+import { authService } from '../services/authService';
 
 const AdminLayout = () => {
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    let user = auth.getCurrentUser();
+    let user = authService.getCurrentUser();
+    const isAdmin = user && (user.role === 'super_admin' || user.role === 'admin');
 
     // Auto-restore admin session if they were impersonating a client and clicked back to /admin
-    if (user && user.role !== 'super_admin') {
+    if (user && !isAdmin) {
       const originalAdmin = localStorage.getItem('original_admin_user');
       if (originalAdmin) {
         localStorage.setItem('auth_user', originalAdmin);
@@ -21,9 +22,9 @@ const AdminLayout = () => {
       }
     }
 
-    if (!user) {
+    if (!user || !authService.isAuthenticated()) {
       navigate('/login');
-    } else if (user.role !== 'super_admin') {
+    } else if (!isAdmin) {
       // Redirect clients away from admin area
       if (user.services && user.services.includes('personal_qr') && !user.services.includes('restaurant_menu')) {
         navigate('/personal_qr_dashboard');

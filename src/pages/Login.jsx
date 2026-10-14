@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../js/auth';
+import { authService } from '../services/authService';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -14,8 +14,8 @@ const Login = () => {
     setLoading(true);
     setError('');
     try {
-      const user = await auth.login(email, password);
-      if (user.role === 'super_admin') {
+      const user = await authService.login(email, password);
+      if (user.role === 'super_admin' || user.role === 'admin') {
         navigate('/admin');
       } else {
         if (user.services?.includes('restaurant_menu')) {
@@ -27,7 +27,7 @@ const Login = () => {
         }
       }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -35,13 +35,13 @@ const Login = () => {
 
   return (
     <div className="d-flex align-items-center justify-content-center flex-grow-1" style={{ background: '#f3f4f6', minHeight: '100vh' }}>
-      <div className="card shadow-sm p-5 border-0 rounded-4" style={{ width: '100%', maxWidth: '400px' }}>
+      <div className="card shadow-sm p-5 border-0 rounded-4" style={{ width: '100%', maxWidth: '420px' }}>
         <div className="text-center mb-4">
           <h2 className="fw-bold text-primary">Login</h2>
-          <p className="text-muted">Sign in to your dashboard</p>
+          <p className="text-muted">Sign in to your SaaS dashboard</p>
         </div>
         
-        {error && <div className="alert alert-danger p-2">{error}</div>}
+        {error && <div className="alert alert-danger p-2 small">{error}</div>}
 
         <form onSubmit={handleLogin}>
           <div className="mb-3">
@@ -52,6 +52,7 @@ const Login = () => {
               placeholder="e.g. admin@test.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              required
               style={{ padding: '12px', borderRadius: '8px' }}
             />
           </div>
@@ -63,6 +64,7 @@ const Login = () => {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              required
               style={{ padding: '12px', borderRadius: '8px' }}
             />
           </div>
@@ -71,10 +73,11 @@ const Login = () => {
           </button>
         </form>
         
-        <div className="text-center mt-4">
+        <div className="text-center mt-4 pt-3 border-top">
           <div className="text-muted small">
-            <strong>Admin Login:</strong> admin@test.com / any password<br />
-            <strong>Demo Client Login:</strong> admin@pizzahouse.com / password123
+            <strong>Super Admin:</strong> <code>admin@test.com</code> / <code>password123</code><br />
+            <strong>Restaurant Client:</strong> <code>admin@pizzahouse.com</code> / <code>password123</code><br />
+            <strong>Personal Card Client:</strong> <code>john@enterprise.com</code> / <code>password123</code>
           </div>
         </div>
       </div>

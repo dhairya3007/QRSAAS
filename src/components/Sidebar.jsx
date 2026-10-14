@@ -1,46 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, LogOut, ChevronDown, ChevronRight, User, QrCode } from 'lucide-react';
-import { auth } from '../js/auth';
+import { authService } from '../services/authService';
+import syncService from '../services/syncService';
 
 const Sidebar = ({ isHovered, setIsHovered }) => {
   const navigate = useNavigate();
-  const sessionUser = auth.getCurrentUser();
+  const [currentUser, setCurrentUser] = useState(authService.getCurrentUser());
   const [isMenuOpen, setIsMenuOpen] = useState(true);
   const [isPersonalOpen, setIsPersonalOpen] = useState(true);
-  const [liveServices, setLiveServices] = useState(sessionUser?.services || []);
+
+  const syncUser = () => {
+    const updated = authService.getCurrentUser();
+    if (updated) {
+      setCurrentUser(updated);
+    }
+  };
 
   useEffect(() => {
-    const fetchServices = () => {
-      const clients = JSON.parse(localStorage.getItem('restaurant_db_clients') || '[]');
-      const liveUser = clients.find(c => c.id === sessionUser?.id);
-      if (liveUser) {
-        setLiveServices(liveUser.services || []);
-        
-        // Also update the local auth_user so that hard refreshes retain it
-        const currentAuth = JSON.parse(localStorage.getItem('auth_user') || '{}');
-        if (currentAuth.id === liveUser.id) {
-          localStorage.setItem('auth_user', JSON.stringify({ ...currentAuth, services: liveUser.services || [] }));
-        }
-      }
+    syncUser();
+
+    const unsubscribe = syncService.subscribe(() => {
+      syncUser();
+    });
+
+    window.addEventListener('auth_user_updated', syncUser);
+    window.addEventListener('storage', syncUser);
+    window.addEventListener('focus', syncUser);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('auth_user_updated', syncUser);
+      window.removeEventListener('storage', syncUser);
+      window.removeEventListener('focus', syncUser);
     };
+  }, []);
 
-    fetchServices();
-
-    const handleStorageChange = (e) => {
-      if (e.key === 'restaurant_db_clients') {
-        fetchServices();
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [sessionUser?.id]);
-
-  const user = { ...sessionUser, services: liveServices };
+  const user = currentUser;
 
   const handleLogout = () => {
-    auth.logout();
+    authService.logout();
     navigate('/login');
   };
 

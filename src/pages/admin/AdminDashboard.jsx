@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Users, CreditCard, Plus, Copy, CheckCircle, Edit } from 'lucide-react';
-import { fakeBackend } from '../../js/fakebackend';
+import { Users, CreditCard, Plus, Copy, CheckCircle, Edit, DollarSign } from 'lucide-react';
+import { adminService } from '../../services/adminService';
+import syncService from '../../services/syncService';
 import { AVAILABLE_SERVICES } from './Services';
 
 const AdminDashboard = () => {
@@ -14,60 +15,93 @@ const AdminDashboard = () => {
   const [showServiceDropdown, setShowServiceDropdown] = useState(false);
   const [newClient, setNewClient] = useState({ name: '', email: '', password: '', serviceDurations: {}, services: [] });
   const [isEdit, setIsEdit] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     fetchData();
-    const handleStorageChange = (e) => {
-      if (e.key === 'restaurant_db_clients') {
-        fetchData();
+
+    // Instant real-time cross-tab sync
+    const unsubscribe = syncService.subscribe(() => {
+      if (!showCreateModal) {
+        fetchData(true);
+      }
+    });
+
+    // Gentle 10-second idle background refresh (only when tab is active)
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      if (!showCreateModal) {
+        fetchData(true);
+      }
+    }, 10000);
+
+    const onFocusOrVisible = () => {
+      if (!showCreateModal) {
+        fetchData(true);
       }
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
 
-  const fetchData = async () => {
-    const clients = await fakeBackend.getClients();
-    
-    const total = clients.length;
-    const active = clients.filter(c => c.isActive !== false).length;
-    
-    // Estimate revenue based on plan (e.g., Premium = $50, Basic = $20, Free = $0)
-    const revenue = clients.reduce((acc, c) => {
-      if (c.plan?.toLowerCase() === 'premium') return acc + 50;
-      if (c.plan?.toLowerCase() === 'standard' || c.plan?.toLowerCase() === 'basic') return acc + 20;
-      return acc + 10; // Default fallback estimate
-    }, 0);
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [showCreateModal]);
 
-    setStats({ total, active, revenue });
-    setClients([...clients].reverse());
+  const fetchData = async (isSilent = false) => {
+    try {
+      if (!isSilent) setLoading(true);
+      setErrorMsg('');
+      const [clientsData, statsData] = await Promise.all([
+        adminService.getClients(),
+        adminService.getAdminStats().catch(() => null)
+      ]);
+
+      const clientList = Array.isArray(clientsData) ? clientsData : [];
+      setClients([...clientList].reverse());
+
+      if (statsData) {
+        setStats(statsData);
+      } else {
+        const total = clientList.length;
+        const active = clientList.filter(c => c.isActive !== false).length;
+        setStats({ total, active, revenue: 0 });
+      }
+    } catch (err) {
+      console.error('Failed to load admin data:', err);
+      if (!isSilent) setErrorMsg(err.message || 'Error loading clients from backend.');
+    } finally {
+      if (!isSilent) setLoading(false);
+    }
   };
 
   const handleCreateClient = async (e) => {
     e.preventDefault();
-    if (newClient.email) {
-      const clients = await fakeBackend.getClients();
-      const emailExists = clients.some(c => c.email === newClient.email && c.id !== newClient.id);
-      if (emailExists) {
-        alert('This email is already registered to another client. Please use a unique email.');
-        return;
-      }
-    }
+    setErrorMsg('');
+
     if (newClient.services.length === 0) {
       alert('Please select at least one service.');
       return;
     }
-    
-    if (isEdit) {
-      await fakeBackend.updateClient(newClient.id, newClient);
-    } else {
-      await fakeBackend.createClient(newClient);
-    }
 
-    setShowCreateModal(false);
-    setNewClient({ name: '', email: '', password: '', serviceDurations: {}, services: [] });
-    setIsEdit(false);
-    fetchData(); 
+    try {
+      if (isEdit) {
+        await adminService.updateClient(newClient.id, newClient);
+      } else {
+        await adminService.createClient(newClient);
+      }
+
+      setShowCreateModal(false);
+      setNewClient({ name: '', email: '', password: '', serviceDurations: {}, services: [] });
+      setIsEdit(false);
+      await fetchData();
+    } catch (err) {
+      alert('Failed to save client: ' + (err.message || 'Server error'));
+    }
   };
 
   const openEditModal = (client) => {

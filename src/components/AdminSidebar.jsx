@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, QrCode, Wallet, User, ChevronDown, ChevronRight, LogOut } from 'lucide-react';
-import { auth } from '../js/auth';
+import { authService } from '../services/authService';
 
 const AdminSidebar = ({ isHovered, setIsHovered }) => {
   const navigate = useNavigate();
@@ -9,7 +9,7 @@ const AdminSidebar = ({ isHovered, setIsHovered }) => {
   const [showWalletPopup, setShowWalletPopup] = useState(false);
 
   const handleLogout = () => {
-    auth.logout();
+    authService.logout();
     navigate('/login');
   };
 

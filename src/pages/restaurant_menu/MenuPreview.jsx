@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
-import { fakeBackend } from '../../js/fakebackend';
+import { publicService } from '../../services/publicService';
+import syncService from '../../services/syncService';
 import { RESTAURANT_THEMES } from './themes/restaurantThemes';
 
 const MenuPreview = () => {
@@ -12,31 +13,57 @@ const MenuPreview = () => {
   const [activeTabId, setActiveTabId] = useState(null);
 
   useEffect(() => {
+    let isInitial = true;
+
     const fetchMenu = async () => {
-      setError('');
       try {
-        const result = await fakeBackend.getMenuByToken(token);
-        setData(result);
+        const result = await publicService.getPublicMenu(token);
+        setData(prev => JSON.stringify(prev) === JSON.stringify(result) ? prev : result);
+        if (result?.client?.name) {
+          document.title = `${result.client.name} - Digital Menu`;
+        }
+        setError('');
       } catch (err) {
-        setError(err.message);
+        setError(err.message || 'Failed to load menu');
       } finally {
-        setLoading(false);
+        if (isInitial) {
+          setLoading(false);
+          isInitial = false;
+        }
       }
     };
 
     if (token) {
-      // Increment scan count only once when the page initially loads
-      fakeBackend.incrementScanCount(token);
+      // Increment scan count in backend once on load
+      publicService.incrementScanCount(token);
       fetchMenu();
 
-      // Listen for local storage changes to auto-update the menu & theme instantly
-      const handleStorageChange = (e) => {
-        if (e.key && e.key.startsWith('restaurant_db_')) {
+      // Real-time instant cross-tab sync
+      const unsubscribe = syncService.subscribe(() => {
+        fetchMenu();
+      });
+
+      // Background polling (3s) when page is active on screen
+      const interval = setInterval(() => {
+        if (document.hidden) return;
+        fetchMenu();
+      }, 3000);
+
+      // Instant refresh on tab focus / visibility change
+      const onFocusOrVisible = () => {
+        if (document.visibilityState === 'visible') {
           fetchMenu();
         }
       };
-      window.addEventListener('storage', handleStorageChange);
-      return () => window.removeEventListener('storage', handleStorageChange);
+      window.addEventListener('focus', onFocusOrVisible);
+      document.addEventListener('visibilitychange', onFocusOrVisible);
+
+      return () => {
+        unsubscribe();
+        clearInterval(interval);
+        window.removeEventListener('focus', onFocusOrVisible);
+        document.removeEventListener('visibilitychange', onFocusOrVisible);
+      };
     }
   }, [token]);
 

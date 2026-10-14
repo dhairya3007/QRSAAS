@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { fakeBackend } from '../../js/fakebackend';
+import { adminService } from '../../services/adminService';
+import syncService from '../../services/syncService';
 import { Plus, Edit, ExternalLink, QrCode, Download, Trash2, ToggleRight, ToggleLeft } from 'lucide-react';
 
 const CreateQRPersonal = () => {
@@ -11,45 +12,83 @@ const CreateQRPersonal = () => {
   const navigate = useNavigate();
 
   const fetchClients = async () => {
-    const data = await fakeBackend.getClients();
-    const filteredData = data.filter(c => c.services && c.services.includes('personal_qr'));
-    setClients(filteredData);
+    try {
+      const data = await adminService.getClients();
+      const list = Array.isArray(data) ? data : [];
+      const filteredData = list.filter(c => c.services && c.services.includes('personal_qr'));
+      setClients(filteredData);
+    } catch (err) {
+      console.error('Failed to load personal QR clients:', err);
+    }
   };
 
   useEffect(() => {
     fetchClients();
 
-    // Listen for changes from other tabs to auto-refresh
-    const handleStorageChange = (e) => {
-      if (e.key === 'restaurant_db_clients') {
+    // Instant real-time cross-tab sync
+    const unsubscribe = syncService.subscribe(() => {
+      if (!editClient) {
+        fetchClients();
+      }
+    });
+
+    // Gentle 10-second idle background refresh (only when tab is active)
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      if (!editClient) {
+        fetchClients();
+      }
+    }, 10000);
+
+    const onFocusOrVisible = () => {
+      if (!editClient) {
         fetchClients();
       }
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [editClient]);
 
   const filteredClients = clients.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
   const handleUpdateClient = async (e) => {
     e.preventDefault();
     if (editClient && editClient.id) {
-      await fakeBackend.updateClient(editClient.id, editClient);
-      setEditClient(null);
-      fetchClients();
+      try {
+        await adminService.updateClient(editClient.id, editClient);
+        setEditClient(null);
+        await fetchClients();
+      } catch (err) {
+        alert('Failed to update client: ' + (err.message || 'Server error'));
+      }
     }
   };
 
   const handleDeleteClient = async (id) => {
     if (window.confirm("Are you sure you want to remove the Personal QR service from this client?")) {
-      await fakeBackend.removeServiceFromClient(id, 'personal_qr');
-      await fetchClients();
+      try {
+        await adminService.removeService(id, 'personal_qr');
+        await fetchClients();
+      } catch (err) {
+        alert('Failed to remove service: ' + (err.message || 'Server error'));
+      }
     }
   };
 
   const handleToggleStatus = async (id) => {
-    await fakeBackend.toggleClientServiceSuspension(id, 'personal_qr');
-    fetchClients();
+    try {
+      await adminService.toggleSuspension(id, 'personal_qr');
+      await fetchClients();
+    } catch (err) {
+      alert('Failed to toggle status: ' + (err.message || 'Server error'));
+    }
   };
 
   const handleDownloadQR = async () => {

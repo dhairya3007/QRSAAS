@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, QrCode, Download, Edit, Trash2, Plus, Copy, ExternalLink, ToggleRight, ToggleLeft } from 'lucide-react';
-import { fakeBackend } from '../../js/fakebackend';
+import { adminService } from '../../services/adminService';
+import syncService from '../../services/syncService';
 import { AVAILABLE_SERVICES } from './Services';
 
 const CreateQR = () => {
@@ -16,29 +17,48 @@ const CreateQR = () => {
   useEffect(() => {
     fetchClients();
 
-    const handleStorageChange = (e) => {
-      if (e.key === 'restaurant_db_clients') {
+    // Instant real-time cross-tab sync
+    const unsubscribe = syncService.subscribe(() => {
+      if (!showModal) {
+        fetchClients();
+      }
+    });
+
+    // Gentle 10-second idle background refresh (only when tab is active)
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      if (!showModal) {
+        fetchClients();
+      }
+    }, 10000);
+
+    const onFocusOrVisible = () => {
+      if (!showModal) {
         fetchClients();
       }
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [showModal]);
 
   const fetchClients = async () => {
-    const data = await fakeBackend.getClients();
-    setClients(data.filter(c => c.services?.includes('restaurant_menu')));
+    try {
+      const data = await adminService.getClients();
+      const list = Array.isArray(data) ? data : [];
+      setClients(list.filter(c => c.services?.includes('restaurant_menu')));
+    } catch (err) {
+      console.error('Failed to load restaurant clients:', err);
+    }
   };
 
   const handleSaveClient = async () => {
-    if (newClient.email) {
-      const emailExists = clients.some(c => c.email === newClient.email && c.id !== newClient.id);
-      if (emailExists) {
-        alert('This email is already registered to another client. Please use a unique email.');
-        return;
-      }
-    }
-
     if (newClient.services.length === 0) {
       alert('Please select at least one service.');
       return;
@@ -47,15 +67,15 @@ const CreateQR = () => {
     setLoading(true);
     try {
       if (isEdit) {
-        await fakeBackend.updateClient(newClient.id, newClient);
+        await adminService.updateClient(newClient.id, newClient);
       } else {
-        await fakeBackend.createClient(newClient);
+        await adminService.createClient(newClient);
       }
       await fetchClients();
       setShowModal(false);
       setNewClient({ name: '', email: '', password: '', services: [], serviceDurations: {} });
     } catch (e) {
-      console.error(e);
+      alert('Failed to save client: ' + (e.message || 'Server error'));
     } finally {
       setLoading(false);
     }
@@ -63,14 +83,22 @@ const CreateQR = () => {
 
   const handleDeleteClient = async (id) => {
     if (window.confirm("Are you sure you want to delete this client?")) {
-      await fakeBackend.deleteClient(id);
-      await fetchClients();
+      try {
+        await adminService.deleteClient(id);
+        await fetchClients();
+      } catch (e) {
+        alert('Failed to delete client: ' + (e.message || 'Server error'));
+      }
     }
   };
 
   const handleToggleStatus = async (id) => {
-    await fakeBackend.toggleClientServiceSuspension(id, 'restaurant_menu');
-    fetchClients();
+    try {
+      await adminService.toggleSuspension(id, 'restaurant_menu');
+      await fetchClients();
+    } catch (e) {
+      alert('Failed to toggle status: ' + (e.message || 'Server error'));
+    }
   };
 
   const handleAdminAutoLogin = (client) => {
@@ -203,7 +231,7 @@ const CreateQR = () => {
                   </td>
 
                   <td className="py-3 border-0">
-                    {client.isSetupComplete ? (
+                    {client.completedSetups?.includes('restaurant_menu') ? (
                       <div className="d-flex align-items-center gap-2">
                         <button
                           onClick={() => setViewQR(client)}

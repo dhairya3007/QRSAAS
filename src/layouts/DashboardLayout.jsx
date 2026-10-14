@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
-import { auth } from '../js/auth';
+import { authService } from '../services/authService';
 import { Maximize, Minimize } from 'lucide-react';
 
 const DashboardLayout = () => {
@@ -10,7 +10,7 @@ const DashboardLayout = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    if (!auth.isAuthenticated()) {
+    if (!authService.isAuthenticated()) {
       navigate('/login');
     }
   }, [navigate]);

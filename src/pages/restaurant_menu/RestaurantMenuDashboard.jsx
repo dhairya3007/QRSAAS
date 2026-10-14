@@ -1,110 +1,285 @@
 import React, { useEffect, useState } from 'react';
 import { Store, Layers, Utensils, QrCode, ExternalLink, Download, Palette, ToggleRight, ToggleLeft, Plus, Edit2, Trash2 } from 'lucide-react';
-import { fakeBackend } from '../../js/fakebackend';
-import { auth } from '../../js/auth';
+import { restaurantService } from '../../services/restaurantService';
+import { authService } from '../../services/authService';
+import syncService from '../../services/syncService';
 import { RESTAURANT_THEMES } from './themes/restaurantThemes';
 
 const RestaurantMenuDashboard = () => {
   const [stats, setStats] = useState({ categories: 0, dishes: 0, scanCount: 0 });
   const [dishes, setDishes] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [dishTypes, setDishTypes] = useState([]);
   const [isActive, setIsActive] = useState(true);
 
   const [showBusinessModal, setShowBusinessModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [categoryModalTab, setCategoryModalTab] = useState('categories'); // 'categories' | 'types'
   const [showDishModal, setShowDishModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
 
   const [business, setBusiness] = useState({ name: '', phone: '', address: '', logo: '' });
   const [newCategory, setNewCategory] = useState('');
+  const [newDishType, setNewDishType] = useState('');
   const [newDish, setNewDish] = useState({ name: '', price: '', quantity: '', type: 'Veg', categoryId: '', image: '' });
   const [editDishId, setEditDishId] = useState(null);
 
-  const user = auth.getCurrentUser();
+  const user = authService.getCurrentUser();
   const [currentTheme, setCurrentTheme] = useState(user?.theme || 'modern');
   const [previewTheme, setPreviewTheme] = useState(user?.theme || 'modern');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchData();
-    const handleStorageChange = (e) => {
-      if (e.key === 'restaurant_db_clients') fetchData();
+
+    // Instant cross-tab & cross-window real-time synchronization
+    const unsubscribe = syncService.subscribe((payload) => {
+      if (!showBusinessModal && !showCategoryModal && !showDishModal && !showThemeModal && !showQrModal) {
+        fetchData(true);
+      }
+    });
+
+    // Gentle 10-second idle background refresh (only when tab is active)
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      if (!showBusinessModal && !showCategoryModal && !showDishModal && !showThemeModal && !showQrModal) {
+        fetchData(true);
+      }
+    }, 10000);
+
+    const onFocusOrVisible = () => {
+      if (!showBusinessModal && !showCategoryModal && !showDishModal && !showThemeModal && !showQrModal) {
+        fetchData(true);
+      }
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [showBusinessModal, showCategoryModal, showDishModal, showThemeModal, showQrModal]);
 
   useEffect(() => {
     if (showThemeModal) setPreviewTheme(currentTheme);
   }, [showThemeModal]);
 
-  const fetchData = async () => {
-    if (user?.id) {
-      const cats = await fakeBackend.getCategoriesByClientId(user.id);
-      const d = await fakeBackend.getDishesByClientId(user.id);
-      const bDetails = await fakeBackend.getBusinessDetails(user.id);
-      const scans = await fakeBackend.getScanCount(user.id);
-      const activeStatus = await fakeBackend.getClientStatus(user.id);
-      setCategories(cats);
-      setStats({ categories: cats.length, dishes: d.length, scanCount: scans });
-      setDishes(d);
-      setIsActive(activeStatus);
-      if (bDetails.name) setBusiness(bDetails);
-      if (cats.length > 0 && !newDish.categoryId) {
-        setNewDish(prev => ({ ...prev, categoryId: cats[0].id }));
+  const fetchData = async (isSilent = false) => {
+    try {
+      if (!isSilent) setLoading(true);
+      const [cats, d, bDetails, scans, types, statusRes] = await Promise.all([
+        restaurantService.getCategories(),
+        restaurantService.getDishes(),
+        restaurantService.getBusinessDetails().catch(() => ({})),
+        restaurantService.getScanCount().catch(() => 0),
+        restaurantService.getDishTypes().catch(() => []),
+        restaurantService.getStatus().catch(() => ({ isActive: true })),
+      ]);
+
+      const catsList = Array.isArray(cats) ? cats : [];
+      const dishesList = Array.isArray(d) ? d : [];
+      const typesList = Array.isArray(types) ? types : [];
+      setCategories(catsList);
+      setDishes(dishesList);
+      setDishTypes(typesList);
+      setStats({ categories: catsList.length, dishes: dishesList.length, scanCount: scans });
+      if (statusRes && statusRes.isActive !== undefined) {
+        setIsActive(statusRes.isActive);
       }
+      
+      if (bDetails && bDetails.name && !showBusinessModal) {
+        setBusiness(bDetails);
+      }
+      if (bDetails && bDetails.theme) {
+        setCurrentTheme(bDetails.theme);
+        setPreviewTheme(bDetails.theme);
+      }
+      if (catsList.length > 0 && !newDish.categoryId) {
+        setNewDish(prev => ({ ...prev, categoryId: catsList[0].id }));
+      }
+    } catch (err) {
+      console.error('Failed to load restaurant dashboard data:', err);
+    } finally {
+      if (!isSilent) setLoading(false);
     }
   };
 
   const handleSaveBusiness = async (e) => {
     e.preventDefault();
-    if (user?.id) {
-      try { await fakeBackend.saveBusinessDetails(user.id, business); setShowBusinessModal(false); }
-      catch (err) { alert("Failed to save: " + err.message); }
+    try {
+      await restaurantService.saveBusinessDetails(business);
+      setShowBusinessModal(false);
+
+      // Sync local session and update Sidebar header immediately
+      const current = localStorage.getItem('auth_user');
+      if (current && business.name) {
+        const parsed = JSON.parse(current);
+        parsed.name = business.name;
+        localStorage.setItem('auth_user', JSON.stringify(parsed));
+        window.dispatchEvent(new Event('auth_user_updated'));
+      }
+
+      await fetchData();
+    } catch (err) {
+      alert("Failed to save: " + (err.message || 'Server error'));
     }
   };
+
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
-    if (file) { const r = new FileReader(); r.onloadend = () => setBusiness({ ...business, logo: r.result }); r.readAsDataURL(file); }
+    if (file) {
+      const r = new FileReader();
+      r.onloadend = () => setBusiness({ ...business, logo: r.result });
+      r.readAsDataURL(file);
+    }
   };
+
   const handleAddCategory = async (e) => {
     e.preventDefault();
-    if (newCategory.trim() && user?.id) { await fakeBackend.addCategory(user.id, newCategory.trim()); setNewCategory(''); fetchData(); }
+    if (newCategory.trim()) {
+      try {
+        await restaurantService.addCategory(newCategory.trim());
+        setNewCategory('');
+        setShowCategoryModal(false);
+        await fetchData();
+      } catch (err) {
+        alert("Failed to add category: " + (err.message || 'Server error'));
+      }
+    }
   };
-  const handleDeleteCategory = async (id) => { await fakeBackend.deleteCategory(id); fetchData(); };
+
+  const handleDeleteCategory = async (id) => {
+    if (window.confirm("Are you sure you want to delete this category?")) {
+      try {
+        await restaurantService.deleteCategory(id);
+        await fetchData();
+      } catch (err) {
+        alert("Failed to delete category: " + (err.message || 'Server error'));
+      }
+    }
+  };
+
+  const handleAddDishType = async (e) => {
+    e.preventDefault();
+    if (newDishType.trim()) {
+      try {
+        await restaurantService.addDishType(newDishType.trim());
+        setNewDishType('');
+        const updatedTypes = await restaurantService.getDishTypes();
+        setDishTypes(Array.isArray(updatedTypes) ? updatedTypes : []);
+      } catch (err) {
+        alert("Failed to add dish type: " + (err.message || 'Server error'));
+      }
+    }
+  };
+
+  const handleDeleteDishType = async (id) => {
+    if (window.confirm("Are you sure you want to delete this dish type?")) {
+      try {
+        await restaurantService.deleteDishType(id);
+        const updatedTypes = await restaurantService.getDishTypes();
+        setDishTypes(Array.isArray(updatedTypes) ? updatedTypes : []);
+      } catch (err) {
+        alert("Failed to delete dish type: " + (err.message || 'Server error'));
+      }
+    }
+  };
+
   const handleDishImageUpload = (e) => {
     const file = e.target.files[0];
-    if (file) { const r = new FileReader(); r.onloadend = () => setNewDish({ ...newDish, image: r.result }); r.readAsDataURL(file); }
+    if (file) {
+      const r = new FileReader();
+      r.onloadend = () => setNewDish({ ...newDish, image: r.result });
+      r.readAsDataURL(file);
+    }
   };
+
   const handleAddDish = async (e) => {
     e.preventDefault();
     const finalCategoryId = newDish.categoryId || (categories.length > 0 ? categories[0].id : '');
-    if (newDish.name && newDish.price && finalCategoryId && user?.id) {
+    if (newDish.name && newDish.price && finalCategoryId) {
       const dishToSave = { ...newDish, categoryId: finalCategoryId };
-      if (editDishId) { await fakeBackend.updateDish(editDishId, dishToSave); } else { await fakeBackend.addDish(dishToSave); }
-      setNewDish({ name: '', price: '', quantity: '', type: 'Veg', categoryId: categories[0]?.id || '', image: '' });
-      setEditDishId(null); setShowDishModal(false); await fetchData();
+      try {
+        if (editDishId) {
+          await restaurantService.updateDish(editDishId, dishToSave);
+        } else {
+          await restaurantService.addDish(dishToSave);
+        }
+        setNewDish({ name: '', price: '', quantity: '', type: 'Veg', categoryId: categories[0]?.id || '', image: '' });
+        setEditDishId(null);
+        setShowDishModal(false);
+        await fetchData();
+      } catch (err) {
+        alert("Failed to save dish: " + (err.message || 'Server error'));
+      }
     }
   };
+
   const handleEditDish = (dish) => {
-    setNewDish({ name: dish.name, price: dish.price, quantity: dish.quantity || '', type: dish.type || 'Veg', categoryId: dish.categoryId, image: dish.image || '' });
-    setEditDishId(dish.id); setShowDishModal(true);
+    setNewDish({
+      name: dish.name,
+      price: dish.price,
+      quantity: dish.quantity || '',
+      type: dish.type || 'Veg',
+      categoryId: dish.categoryId,
+      image: dish.image || '',
+    });
+    setEditDishId(dish.id);
+    setShowDishModal(true);
   };
-  const handleToggleDishStatus = async (id) => { await fakeBackend.toggleDishStatus(id); fetchData(); };
-  const handleDeleteDish = async (id) => { await fakeBackend.deleteDish(id); fetchData(); };
-  const handleToggleStatus = async () => {
-    if (user?.id) { const s = await fakeBackend.toggleClientStatus(user.id); setIsActive(s); }
-  };
-  const handleUpdateTheme = async (themeId) => {
-    if (user?.id) {
-      setCurrentTheme(themeId);
-      await fakeBackend.updateClientTheme(user.id, themeId);
-      user.theme = themeId;
-      localStorage.setItem('auth_user', JSON.stringify(user));
-      window.dispatchEvent(new StorageEvent('storage', { key: 'restaurant_db_clients' }));
-      setShowThemeModal(false);
+
+  const handleToggleDishStatus = async (id) => {
+    try {
+      await restaurantService.toggleDishStatus(id);
+      await fetchData();
+    } catch (err) {
+      alert("Failed to toggle status: " + (err.message || 'Server error'));
     }
   };
+
+  const handleDeleteDish = async (id) => {
+    if (window.confirm("Are you sure you want to delete this dish?")) {
+      try {
+        await restaurantService.deleteDish(id);
+        await fetchData();
+      } catch (err) {
+        alert("Failed to delete dish: " + (err.message || 'Server error'));
+      }
+    }
+  };
+
+  const handleToggleStatus = async () => {
+    try {
+      const res = await restaurantService.toggleStatus();
+      if (res && res.isActive !== undefined) {
+        setIsActive(res.isActive);
+      } else {
+        setIsActive(!isActive);
+      }
+    } catch (err) {
+      alert("Failed to toggle status: " + (err.message || 'Server error'));
+    }
+  };
+
+  const handleUpdateTheme = async (themeId) => {
+    try {
+      setCurrentTheme(themeId);
+      await restaurantService.updateTheme(themeId);
+      const currentUser = authService.getCurrentUser();
+      if (currentUser) {
+        currentUser.theme = themeId;
+        localStorage.setItem('auth_user', JSON.stringify(currentUser));
+      }
+      setShowThemeModal(false);
+    } catch (err) {
+      alert("Failed to update theme: " + (err.message || 'Server error'));
+    }
+  };
+
   const handleDownloadQR = async () => {
     try {
       const url = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(window.location.origin + '/' + user?.qrToken)}`;
@@ -257,18 +432,117 @@ const RestaurantMenuDashboard = () => {
         </>
       )}
 
-      {/* Category Modal */}
+      {/* Category & Dish Types Modal */}
       {showCategoryModal && (
         <>
           <div className="modal-backdrop fade show" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}></div>
           <div className="modal d-block" tabIndex="-1" style={{ zIndex: 1055 }}>
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content border-0 shadow-lg rounded-4">
-                <div className="modal-header border-bottom-0 pb-0 pt-4 px-4"><h5 className="modal-title fw-bold">Manage Categories</h5><button type="button" className="btn-close" onClick={() => setShowCategoryModal(false)}></button></div>
+                <div className="modal-header border-bottom-0 pb-0 pt-4 px-4">
+                  <h5 className="modal-title fw-bold">Manage Categories & Dish Types</h5>
+                  <button type="button" className="btn-close" onClick={() => setShowCategoryModal(false)}></button>
+                </div>
+                
+                {/* Tabs */}
+                <div className="px-4 pt-3">
+                  <div className="nav nav-pills nav-fill p-1 bg-light rounded-3" style={{ border: '1px solid #e2e8f0' }}>
+                    <button 
+                      type="button"
+                      className={`nav-link py-2 fw-bold small ${categoryModalTab === 'categories' ? 'active shadow-sm text-white' : 'text-muted'}`}
+                      style={{ 
+                        backgroundColor: categoryModalTab === 'categories' ? '#5e35b1' : 'transparent',
+                        borderRadius: '6px'
+                      }}
+                      onClick={() => setCategoryModalTab('categories')}
+                    >
+                      📁 Categories ({categories.length})
+                    </button>
+                    <button 
+                      type="button"
+                      className={`nav-link py-2 fw-bold small ${categoryModalTab === 'types' ? 'active shadow-sm text-white' : 'text-muted'}`}
+                      style={{ 
+                        backgroundColor: categoryModalTab === 'types' ? '#5e35b1' : 'transparent',
+                        borderRadius: '6px'
+                      }}
+                      onClick={() => setCategoryModalTab('types')}
+                    >
+                      🍲 Dish Types ({dishTypes.length})
+                    </button>
+                  </div>
+                </div>
+
                 <div className="modal-body p-4">
-                  <form onSubmit={handleAddCategory} className="d-flex gap-2 mb-4"><input type="text" className="form-control" placeholder="New category (e.g. Beverages)" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} /><button type="submit" className="btn text-white fw-bold px-4" style={{ backgroundColor: '#5e35b1' }}>Add</button></form>
-                  <ul className="list-group">{categories.map(cat => (<li key={cat.id} className="list-group-item d-flex justify-content-between border-0 px-0 border-bottom"><span className="fw-bold">{cat.name}</span><button onClick={() => handleDeleteCategory(cat.id)} className="btn btn-sm text-danger"><Trash2 size={16} /></button></li>))}{categories.length === 0 && <p className="text-muted small">No categories yet.</p>}</ul>
-                  <div className="d-flex justify-content-end mt-4"><button type="button" className="btn btn-light border" onClick={() => setShowCategoryModal(false)}>Close</button></div>
+                  {categoryModalTab === 'categories' ? (
+                    <>
+                      <form onSubmit={handleAddCategory} className="d-flex gap-2 mb-4">
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          placeholder="New category (e.g. Beverages)" 
+                          value={newCategory} 
+                          onChange={(e) => setNewCategory(e.target.value)} 
+                          required
+                        />
+                        <button type="submit" className="btn text-white fw-bold px-4" style={{ backgroundColor: '#5e35b1' }}>
+                          Add
+                        </button>
+                      </form>
+                      <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                        <ul className="list-group">
+                          {categories.map(cat => (
+                            <li key={cat.id} className="list-group-item d-flex justify-content-between align-items-center border-0 px-0 border-bottom">
+                              <span className="fw-bold">{cat.name}</span>
+                              <button onClick={() => handleDeleteCategory(cat.id)} className="btn btn-sm text-danger" title="Delete Category">
+                                <Trash2 size={16} />
+                              </button>
+                            </li>
+                          ))}
+                          {categories.length === 0 && <p className="text-muted small py-2 mb-0">No categories yet.</p>}
+                        </ul>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <form onSubmit={handleAddDishType} className="d-flex gap-2 mb-4">
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          placeholder="New dish type (e.g. Veg, Vegan, Beverage)" 
+                          value={newDishType} 
+                          onChange={(e) => setNewDishType(e.target.value)} 
+                          required
+                        />
+                        <button type="submit" className="btn text-white fw-bold px-4" style={{ backgroundColor: '#5e35b1' }}>
+                          Add Type
+                        </button>
+                      </form>
+                      <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                        <ul className="list-group">
+                          {dishTypes.map(type => (
+                            <li key={type.id} className="list-group-item d-flex justify-content-between align-items-center border-0 px-0 border-bottom">
+                              <div className="d-flex align-items-center gap-2">
+                                <span className="badge bg-secondary-subtle text-dark border px-2 py-1">{type.name}</span>
+                              </div>
+                              <button onClick={() => handleDeleteDishType(type.id)} className="btn btn-sm text-danger" title="Delete Dish Type">
+                                <Trash2 size={16} />
+                              </button>
+                            </li>
+                          ))}
+                          {dishTypes.length === 0 && (
+                            <div className="py-2 text-muted small">
+                              No custom dish types yet. Standard types (Veg, Non-Veg, Egg, Vegan) are automatically available.
+                            </div>
+                          )}
+                        </ul>
+                      </div>
+                    </>
+                  )}
+                  <div className="d-flex justify-content-end mt-4">
+                    <button type="button" className="btn btn-light border" onClick={() => setShowCategoryModal(false)}>
+                      Close
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -288,7 +562,43 @@ const RestaurantMenuDashboard = () => {
                   <form onSubmit={handleAddDish}>
                     <div className="mb-3"><label className="form-label text-muted small">Dish Name*</label><input type="text" className="form-control" value={newDish.name} onChange={(e) => setNewDish({ ...newDish, name: e.target.value })} required /></div>
                     <div className="row g-3 mb-3"><div className="col-md-6"><label className="form-label text-muted small">Price*</label><input type="number" className="form-control" value={newDish.price} onChange={(e) => setNewDish({ ...newDish, price: e.target.value })} required /></div><div className="col-md-6"><label className="form-label text-muted small">Quantity</label><input type="text" className="form-control" value={newDish.quantity} onChange={(e) => setNewDish({ ...newDish, quantity: e.target.value })} /></div></div>
-                    <div className="row g-3 mb-4"><div className="col-md-6"><label className="form-label text-muted small">Type*</label><select className="form-select" value={newDish.type} onChange={(e) => setNewDish({ ...newDish, type: e.target.value })}><option value="Veg">Veg</option><option value="Non-Veg">Non-Veg</option></select></div><div className="col-md-6"><label className="form-label text-muted small">Category*</label><select className="form-select" value={newDish.categoryId} onChange={(e) => setNewDish({ ...newDish, categoryId: e.target.value })} required><option value="">-- Select --</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div></div>
+                    <div className="row g-3 mb-4">
+                      <div className="col-md-6">
+                        <div className="d-flex justify-content-between align-items-center mb-1">
+                          <label className="form-label text-muted small mb-0">Type*</label>
+                          <button 
+                            type="button" 
+                            className="btn btn-link p-0 text-decoration-none small text-primary" 
+                            style={{ fontSize: '11px' }}
+                            onClick={() => { setCategoryModalTab('types'); setShowCategoryModal(true); }}
+                          >
+                            + Manage Types
+                          </button>
+                        </div>
+                        <select className="form-select" value={newDish.type} onChange={(e) => setNewDish({ ...newDish, type: e.target.value })}>
+                          {Array.from(new Set(['Veg', 'Non-Veg', 'Egg', 'Vegan', ...dishTypes.map(t => t.name)])).map(tName => (
+                            <option key={tName} value={tName}>{tName}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="d-flex justify-content-between align-items-center mb-1">
+                          <label className="form-label text-muted small mb-0">Category*</label>
+                          <button 
+                            type="button" 
+                            className="btn btn-link p-0 text-decoration-none small text-primary" 
+                            style={{ fontSize: '11px' }}
+                            onClick={() => { setCategoryModalTab('categories'); setShowCategoryModal(true); }}
+                          >
+                            + Manage Categories
+                          </button>
+                        </div>
+                        <select className="form-select" value={newDish.categoryId} onChange={(e) => setNewDish({ ...newDish, categoryId: e.target.value })} required>
+                          <option value="">-- Select --</option>
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
                     <div className="mb-4"><label className="form-label text-muted small">Image</label><input type="file" className="form-control" accept="image/*" onChange={handleDishImageUpload} />{newDish.image && <img src={newDish.image} alt="Preview" className="mt-3 rounded border" style={{ height: '80px', width: '80px', objectFit: 'cover' }} />}</div>
                     <div className="d-flex justify-content-end gap-2"><button type="button" className="btn btn-light border" onClick={() => setShowDishModal(false)}>Cancel</button><button type="submit" className="btn text-white px-4" style={{ backgroundColor: '#5e35b1' }}>{editDishId ? 'Update' : 'Add Dish'}</button></div>
                   </form>

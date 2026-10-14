@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { User, Link as LinkIcon, QrCode, ExternalLink, Download, ToggleRight, ToggleLeft, Plus, Palette, Edit2, Trash2 } from 'lucide-react';
-import { fakeBackend } from '../../js/fakebackend';
-import { auth } from '../../js/auth';
+import { personalQrService } from '../../services/personalQrService';
+import { authService } from '../../services/authService';
+import syncService from '../../services/syncService';
 import { PERSONAL_QR_THEMES } from './themes/personalQrThemes';
 
 import ProfileDetails from './ProfileDetails';
@@ -18,7 +19,7 @@ const PersonalQRDashboard = () => {
   const [showQrModal, setShowQrModal] = useState(false);
   const [editingLink, setEditingLink] = useState(null);
 
-  const user = auth.getCurrentUser();
+  const user = authService.getCurrentUser();
   const [currentTheme, setCurrentTheme] = useState('minimal');
   const [previewTheme, setPreviewTheme] = useState('minimal');
 
@@ -30,84 +31,157 @@ const PersonalQRDashboard = () => {
 
   useEffect(() => {
     fetchData();
+
+    // Instant real-time cross-tab sync
+    const unsubscribe = syncService.subscribe(() => {
+      if (!showProfileModal && !showLinksModal && !showThemeModal && !showQrModal) {
+        fetchData();
+      }
+    });
+
+    // Gentle 10-second idle background refresh (only when tab is active)
     const interval = setInterval(() => {
-      if (!showProfileModal && !showLinksModal && !showThemeModal && !showQrModal && !saving) fetchData();
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [showProfileModal, showLinksModal, showThemeModal, showQrModal, saving]);
+      if (document.hidden) return;
+      if (!showProfileModal && !showLinksModal && !showThemeModal && !showQrModal) {
+        fetchData();
+      }
+    }, 10000);
+
+    const onFocusOrVisible = () => {
+      if (!showProfileModal && !showLinksModal && !showThemeModal && !showQrModal) {
+        fetchData();
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [showProfileModal, showLinksModal, showThemeModal, showQrModal]);
 
   useEffect(() => {
     if (showThemeModal) setPreviewTheme(currentTheme);
   }, [showThemeModal]);
 
   const fetchData = async () => {
-    if (user?.id) {
-      const activeStatus = await fakeBackend.getClientStatus(user.id);
-      setIsActive(activeStatus);
-      const scans = await fakeBackend.getScanCount(user.id);
+    try {
+      const [profileData, scans, statusRes] = await Promise.all([
+        personalQrService.getProfile().catch(() => null),
+        personalQrService.getScanCount().catch(() => 0),
+        personalQrService.getStatus().catch(() => ({ isActive: true })),
+      ]);
       setScanCount(scans);
-      const data = await fakeBackend.getPersonalQRDetails(user.id);
-      if (data) {
-        if (data.theme && data.theme !== currentTheme) {
-          setCurrentTheme(data.theme);
-          setPreviewTheme(data.theme);
-        }
-        setProfile({
-          firstName: data.firstName || '', lastName: data.lastName || '',
-          designation: data.designation || '', bio: data.bio || '', profilePic: data.profilePic || '',
-          education10th: data.education10th || '', education12th: data.education12th || '',
-          educationCollege: data.educationCollege || '', educationMasters: data.educationMasters || '',
-          educationPhD: data.educationPhD || '', links: data.links || [], qrToken: data.qrToken,
-        });
+      if (statusRes && statusRes.isActive !== undefined) {
+        setIsActive(statusRes.isActive);
       }
+      if (profileData) {
+        if (profileData.theme && profileData.theme !== currentTheme) {
+          setCurrentTheme(profileData.theme);
+          setPreviewTheme(profileData.theme);
+        }
+        setProfile(profileData);
+      }
+    } catch (err) {
+      console.warn("Failed to load personal card details:", err);
     }
   };
 
   const handleSaveProfile = async (e) => {
     e?.preventDefault();
-    if (user?.id) {
-      try {
-        setSaving(true);
-        await fakeBackend.updatePersonalQRDetails(user.id, profile);
-        setShowProfileModal(false); fetchData();
-      } catch (err) { alert("Failed: " + err.message); }
-      finally { setSaving(false); }
+    try {
+      setSaving(true);
+      const { links, ...profileWithoutLinks } = profile;
+      await personalQrService.updateProfile(profileWithoutLinks);
+      setShowProfileModal(false);
+      await fetchData();
+    } catch (err) {
+      alert("Failed to save profile: " + (err.message || 'Server error'));
+    } finally {
+      setSaving(false);
     }
   };
+
   const handlePicUpload = (e) => {
     const file = e.target.files[0];
-    if (file) { const r = new FileReader(); r.onloadend = () => setProfile({ ...profile, profilePic: r.result }); r.readAsDataURL(file); }
-  };
-  const saveLinks = async (updatedLinks) => {
-    const updated = { ...profile, links: updatedLinks }; setProfile(updated);
-    if (user?.id) {
-      try { await fakeBackend.updatePersonalQRDetails(user.id, updated); fetchData(); }
-      catch (err) { alert("Failed to save changes!"); fetchData(); }
+    if (file) {
+      const r = new FileReader();
+      r.onloadend = () => setProfile({ ...profile, profilePic: r.result });
+      r.readAsDataURL(file);
     }
   };
+
+  const saveLinks = async (updatedLinks) => {
+    const updated = { ...profile, links: updatedLinks };
+    setProfile(updated);
+    try {
+      await personalQrService.updateProfile(updated);
+      await fetchData();
+    } catch (err) {
+      alert("Failed to save changes: " + (err.message || 'Server error'));
+      await fetchData();
+    }
+  };
+
   const deleteLink = async (id) => {
     if (!window.confirm("Delete this item?")) return;
-    saveLinks(profile.links.filter(l => l.id !== id));
+    const remaining = (profile.links || []).filter(l => l.id !== id);
+    await saveLinks(remaining);
   };
-  const toggleLinkStatus = (id) => saveLinks(profile.links.map(l => l.id === id ? { ...l, isEnabled: l.isEnabled === false ? true : false } : l));
+
+  const toggleLinkStatus = async (id) => {
+    const updated = (profile.links || []).map(l =>
+      l.id === id ? { ...l, isEnabled: l.isEnabled === false ? true : false, isActive: l.isEnabled === false ? true : false } : l
+    );
+    await saveLinks(updated);
+  };
+
   const handleToggleStatus = async () => {
-    if (user?.id) { const s = await fakeBackend.toggleClientStatus(user.id); setIsActive(s); }
-  };
-  const handleUpdateTheme = async (themeId) => {
-    if (user?.id) {
-      setCurrentTheme(themeId);
-      await fakeBackend.updatePersonalQrTheme(user.id, themeId);
-      window.dispatchEvent(new StorageEvent('storage', { key: 'restaurant_db_personal_qr' }));
-      setShowThemeModal(false);
+    try {
+      const res = await personalQrService.toggleStatus();
+      if (res && res.isActive !== undefined) {
+        setIsActive(res.isActive);
+      } else {
+        setIsActive(!isActive);
+      }
+    } catch (err) {
+      alert("Failed to toggle status: " + (err.message || 'Server error'));
     }
   };
-  const handleDownloadQR = async () => {
+
+  const handleUpdateTheme = async (themeId) => {
     try {
-      const url = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(window.location.origin + '/' + profile.qrToken)}`;
-      const r = await fetch(url); const blob = await r.blob();
-      const a = document.createElement('a'); a.href = window.URL.createObjectURL(blob); a.download = `PersonalCard-QRCode.png`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    } catch { alert('Failed to download QR code'); }
+      setCurrentTheme(themeId);
+      await personalQrService.updateTheme(themeId);
+      const currentUser = authService.getCurrentUser();
+      if (currentUser) {
+        currentUser.theme = themeId;
+        localStorage.setItem('auth_user', JSON.stringify(currentUser));
+      }
+      setShowThemeModal(false);
+    } catch (err) {
+      alert("Failed to update theme: " + (err.message || 'Server error'));
+    }
+  };
+
+  const handleDownloadQR = async () => {
+    const token = profile.qrToken || user?.personalQrToken || user?.qrToken;
+    try {
+      const url = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(window.location.origin + '/' + token)}`;
+      const r = await fetch(url);
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = window.URL.createObjectURL(blob);
+      a.download = `PersonalCard-QRCode.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      alert('Failed to download QR code');
+    }
   };
 
   const previewConfig = PERSONAL_QR_THEMES.find(t => t.id === previewTheme) || PERSONAL_QR_THEMES[0];

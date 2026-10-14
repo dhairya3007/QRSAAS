@@ -1,37 +1,66 @@
 import React, { useEffect, useState } from 'react';
-import { fakeBackend } from '../../js/fakebackend';
-import { auth } from '../../js/auth';
-import { MessageSquare, Calendar, Mail, User, Phone } from 'lucide-react';
+import { personalQrService } from '../../services/personalQrService';
+import syncService from '../../services/syncService';
+import { MessageSquare, Calendar, Mail, User, Phone, Trash2 } from 'lucide-react';
 import { Spinner } from 'reactstrap';
 
 const InquiriesPage = () => {
   const [inquiries, setInquiries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const user = auth.getCurrentUser();
 
   useEffect(() => {
     fetchInquiries();
+
+    // Instant real-time cross-tab sync when a visitor submits an inquiry
+    const unsubscribe = syncService.subscribe(() => {
+      fetchInquiries(true);
+    });
+
+    // Gentle 10-second idle background refresh (only when tab is active)
     const interval = setInterval(() => {
-      fetchInquiries();
-    }, 3000);
-    return () => clearInterval(interval);
+      if (document.hidden) return;
+      fetchInquiries(true);
+    }, 10000);
+
+    const onFocusOrVisible = () => fetchInquiries(true);
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
   }, []);
 
-  const fetchInquiries = async () => {
-    if (user?.id) {
+  const fetchInquiries = async (isSilent = false) => {
+    try {
+      if (!isSilent) setLoading(true);
+      setError('');
+      const data = await personalQrService.getInquiries();
+      setInquiries(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (!isSilent) setError(err.message || 'Failed to load inquiries.');
+    } finally {
+      if (!isSilent) setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm('Are you sure you want to delete this inquiry?')) {
       try {
-        const data = await fakeBackend.getPersonalQRInquiries(user.id);
-        setInquiries(data);
+        await personalQrService.deleteInquiry(id);
+        setInquiries(prev => prev.filter(i => i.id !== id));
       } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
+        alert('Failed to delete inquiry: ' + (err.message || 'Server error'));
       }
     }
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return '';
     const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
     return new Date(dateString).toLocaleDateString(undefined, options);
   };
@@ -66,13 +95,14 @@ const InquiriesPage = () => {
                 <th style={{ width: '20%', backgroundColor: '#f8f9fa', borderBottom: '2px solid #e2e8f0' }}>Date & Time</th>
                 <th style={{ width: '20%', backgroundColor: '#f8f9fa', borderBottom: '2px solid #e2e8f0' }}>Name</th>
                 <th style={{ width: '25%', backgroundColor: '#f8f9fa', borderBottom: '2px solid #e2e8f0' }}>Email / Phone</th>
-                <th style={{ width: '35%', backgroundColor: '#f8f9fa', borderBottom: '2px solid #e2e8f0' }}>Message</th>
+                <th style={{ width: '25%', backgroundColor: '#f8f9fa', borderBottom: '2px solid #e2e8f0' }}>Message</th>
+                <th style={{ width: '10%', backgroundColor: '#f8f9fa', borderBottom: '2px solid #e2e8f0' }} className="text-end">Action</th>
               </tr>
             </thead>
             <tbody>
               {inquiries.length === 0 ? (
                 <tr>
-                  <td colSpan="4" className="text-center py-5">
+                  <td colSpan="5" className="text-center py-5">
                     <div className="text-muted mb-3"><MessageSquare size={48} className="mx-auto" /></div>
                     <h5 className="fw-bold text-dark">No Inquiries Yet</h5>
                     <p className="text-muted mb-0">When people fill out the Inquiry Form on your card, their messages will appear here.</p>
@@ -94,15 +124,34 @@ const InquiriesPage = () => {
                       </div>
                     </td>
                     <td className="text-dark">
-                      <div className="d-flex align-items-center gap-2">
-                        <Mail size={16} className="text-muted" />
-                        {inq.email}
+                      <div>
+                        {inq.email && (
+                          <div className="d-flex align-items-center gap-2">
+                            <Mail size={14} className="text-muted" />
+                            <span>{inq.email}</span>
+                          </div>
+                        )}
+                        {inq.phone && (
+                          <div className="d-flex align-items-center gap-2 mt-1 small text-muted">
+                            <Phone size={14} />
+                            <span>{inq.phone}</span>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td>
                       <div className="bg-light p-2 rounded text-secondary small" style={{ whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>
                         {inq.message}
                       </div>
+                    </td>
+                    <td className="text-end">
+                      <button 
+                        onClick={() => handleDelete(inq.id)} 
+                        className="btn btn-sm btn-outline-danger" 
+                        title="Delete Inquiry"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))

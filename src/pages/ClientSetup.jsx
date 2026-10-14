@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { fakeBackend } from '../js/fakebackend';
-import { auth } from '../js/auth';
+import { authService } from '../services/authService';
 
 const ClientSetup = () => {
   const { token } = useParams();
   const navigate = useNavigate();
 
-  const [client, setClient] = useState(null);
+  const [setupInfo, setSetupInfo] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -17,24 +16,28 @@ const ClientSetup = () => {
   useEffect(() => {
     const verifyToken = async () => {
       try {
-        const clients = await fakeBackend.getClients();
-        const foundClient = clients.find(c => c.qrToken === token);
+        setLoading(true);
+        setError('');
+        const info = await authService.getSetupInfo(token);
 
-        if (!foundClient) {
-          setError("Invalid setup link. Please contact your administrator.");
-        } else if (foundClient.email && foundClient.password) {
-          setError("This account has already been set up. Please go to the Login page.");
+        if (info.alreadySetup) {
+          setError('This account has already completed setup. Please go to the Login page.');
         } else {
-          setClient(foundClient);
+          setSetupInfo(info);
+          if (info.email) {
+            setEmail(info.email);
+          }
         }
       } catch (err) {
-        setError("Error verifying link.");
+        setError(err.message || 'Invalid or expired setup link. Please contact your administrator.');
       } finally {
         setLoading(false);
       }
     };
 
-    verifyToken();
+    if (token) {
+      verifyToken();
+    }
   }, [token]);
 
   const handleSetup = async (e) => {
@@ -43,51 +46,57 @@ const ClientSetup = () => {
     setError('');
 
     try {
-      // 0. Check for email uniqueness
-      const clients = await fakeBackend.getClients();
-      const emailExists = clients.some(c => c.email === email && c.id !== client.id);
+      // Complete setup via backend API
+      const user = await authService.completeSetup({
+        token,
+        email,
+        password,
+      });
 
-      if (emailExists) {
-        setError("This email is already taken. Please use a different email.");
-        setSaving(false);
-        return;
-      }
-
-      // 1. Update the client in the database with the new email and password
-      await fakeBackend.updateClient(client.id, { email, password });
-
-      // 2. Automatically log them in
-      await auth.login(email, password);
-
-      // 3. Redirect to dashboard
-      if (client.services?.includes('restaurant_menu')) {
+      // Redirect to appropriate dashboard based on assigned services
+      if (user.services?.includes('restaurant_menu')) {
         navigate('/restaurant_menu_dashboard');
-      } else if (client.services?.includes('personal_qr')) {
+      } else if (user.services?.includes('personal_qr')) {
         navigate('/personal_qr_dashboard');
       } else {
         navigate('/restaurant_menu_dashboard');
       }
     } catch (err) {
-      setError(err.message || "Failed to set up account.");
+      setError(err.message || 'Failed to complete account setup.');
+    } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="text-center p-5 mt-5">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="d-flex align-items-center justify-content-center min-vh-100 bg-light">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading setup details...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="d-flex align-items-center justify-content-center flex-grow-1" style={{ background: '#f3f4f6', minHeight: '100vh' }}>
       <div className="card shadow-sm p-5 border-0 rounded-4" style={{ width: '100%', maxWidth: '450px' }}>
         <div className="text-center mb-4">
           <h2 className="fw-bold text-primary">Account Setup</h2>
-          {client && <p className="text-muted fs-5">Welcome, <span className="fw-bold text-dark">{client.name}</span>!</p>}
+          {setupInfo && (
+            <p className="text-muted fs-5">
+              Welcome, <span className="fw-bold text-dark">{setupInfo.name}</span>!
+            </p>
+          )}
           <p className="text-muted small">Please create your login credentials below to access your dashboard.</p>
         </div>
 
         {error ? (
           <div className="alert alert-warning text-center border-0 rounded-3">
             <p className="mb-3 fw-bold">{error}</p>
-            <button onClick={() => navigate('/login')} className="btn btn-primary btn-sm">Go to Login</button>
+            <button onClick={() => navigate('/login')} className="btn btn-primary btn-sm">
+              Go to Login
+            </button>
           </div>
         ) : (
           <form onSubmit={handleSetup}>
@@ -106,17 +115,24 @@ const ClientSetup = () => {
             <div className="mb-4">
               <label className="form-label fw-bold text-muted">Set Your Password</label>
               <input
-                type="text"
+                type="password"
                 className="form-control"
                 placeholder="Create a password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={4}
                 style={{ padding: '12px', borderRadius: '8px' }}
               />
+              <small className="text-muted">Minimum 4 characters</small>
             </div>
-            <button type="submit" className="btn btn-primary w-100 fw-bold" style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#7b5be4', border: 'none' }} disabled={saving}>
-              {saving ? 'Saving...' : 'Save & Login'}
+            <button
+              type="submit"
+              className="btn btn-primary w-100 fw-bold"
+              style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#7b5be4', border: 'none' }}
+              disabled={saving}
+            >
+              {saving ? 'Setting up account...' : 'Save & Login'}
             </button>
           </form>
         )}

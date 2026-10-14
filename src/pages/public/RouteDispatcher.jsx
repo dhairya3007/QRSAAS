@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { fakeBackend } from '../../js/fakebackend';
+import { publicService } from '../../services/publicService';
 import { Spinner } from 'reactstrap';
 
 // End-User Public Components
@@ -17,11 +17,11 @@ const RouteDispatcher = () => {
     const checkToken = async () => {
       try {
         setLoading(true);
-        // Identify which service this token belongs to
-        const type = await fakeBackend.identifyToken(token);
+        // Identify which service this token belongs to from live backend
+        const type = await publicService.identifyToken(token);
         setServiceType(type);
       } catch (err) {
-        setError('Link not found or invalid.');
+        setError(err.message || 'Link not found or invalid.');
       } finally {
         setLoading(false);
       }

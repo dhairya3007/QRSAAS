@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
-import { fakeBackend } from '../../js/fakebackend';
+import { publicService } from '../../services/publicService';
+import syncService from '../../services/syncService';
 import {
   Phone, Share2, Mail, MapPin, Globe, ExternalLink,
   Download, MessageSquare, Image, FileText, Video
@@ -32,18 +33,19 @@ const PublicCard = () => {
 
   useEffect(() => {
     if (token) {
-      fakeBackend.incrementScanCount(token);
+      publicService.incrementScanCount(token);
     }
 
     const loadProfile = async () => {
       try {
-        const response = await fakeBackend.getPersonalCardByToken(token);
+        const response = await publicService.getPublicPersonalCard(token);
         setData(prev => JSON.stringify(prev) === JSON.stringify(response) ? prev : response);
         if (response?.profile) {
           document.title = `${response.profile.firstName} ${response.profile.lastName} - Digital Profile`;
         }
+        setError('');
       } catch (err) {
-        setError(err.message);
+        setError(err.message || 'Failed to load card');
       } finally {
         setLoading(false);
       }
@@ -51,25 +53,34 @@ const PublicCard = () => {
 
     loadProfile();
 
-    // Poll for real-time updates from dashboard (profile changes, etc.)
+    // Real-time instant cross-tab sync
+    const unsubscribe = syncService.subscribe(() => {
+      if (!showShareModal && !showInquiryModal && !activeMediaItem && !activeTextItem) {
+        loadProfile();
+      }
+    });
+
+    // Background polling (3s) when page is active on screen
     const interval = setInterval(() => {
+      if (document.hidden) return;
       if (!showShareModal && !showInquiryModal && !activeMediaItem && !activeTextItem) {
         loadProfile();
       }
     }, 3000);
 
-    // Also listen for the storage event dispatched when theme is saved from dashboard
-    // This gives instant theme refresh without waiting for the 3-second poll
-    const handleStorageChange = (e) => {
-      if (e.key && (e.key.startsWith('restaurant_db_personal_qr') || e.key.startsWith('restaurant_db_clients'))) {
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible' && !showShareModal && !showInquiryModal && !activeMediaItem && !activeTextItem) {
         loadProfile();
       }
     };
-    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
 
     return () => {
+      unsubscribe();
       clearInterval(interval);
-      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
     };
   }, [token, showShareModal, showInquiryModal, activeMediaItem, activeTextItem]);
 
@@ -139,7 +150,7 @@ const PublicCard = () => {
   // Click Handler for CTA
   const handleCtaClick = (link) => {
     // Fire-and-forget increment
-    fakeBackend.incrementLinkClick(token, link.id).catch(console.error);
+    publicService.incrementLinkClick(token, link.id).catch(console.error);
 
     if (link.type === 'Share') {
       if (navigator.share) {
@@ -184,7 +195,7 @@ const PublicCard = () => {
     e.preventDefault();
     setInquiryStatus('submitting');
     try {
-      await fakeBackend.submitPersonalQRInquiry(token, inquiryForm);
+      await publicService.submitInquiry(token, inquiryForm);
       setInquiryStatus('success');
       setTimeout(() => {
         setShowInquiryModal(false);
@@ -192,7 +203,7 @@ const PublicCard = () => {
         setInquiryForm({ name: '', email: '', message: '' });
       }, 2000);
     } catch (err) {
-      alert('Failed to submit inquiry.');
+      alert('Failed to submit inquiry: ' + (err.message || 'Server error'));
       setInquiryStatus('');
     }
   };
