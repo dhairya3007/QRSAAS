@@ -11,5 +11,5 @@ public interface IPublicQrService
     Task<bool> IncrementScanCountAsync(string token);
     Task<bool> IncrementLinkClickAsync(string token, Guid linkId);
     Task<bool> SubmitInquiryAsync(string token, CreateInquiryDto dto);
-    Task<int> GetScanCountByClientIdAsync(Guid clientId);
+    Task<int> GetScanCountByClientIdAsync(Guid clientId, string? serviceKey = null);
 }

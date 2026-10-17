@@ -80,6 +80,7 @@ public class PublicQrController : ControllerBase
     /// Increments scan counter when a user scans the QR code
     /// </summary>
     [HttpPost("qr/{token}/scans")]
+    [HttpPost("personal-qr/{token}/scans")]
     public async Task<IActionResult> IncrementScanCount(string token)
     {
         await _publicQrService.IncrementScanCountAsync(token);

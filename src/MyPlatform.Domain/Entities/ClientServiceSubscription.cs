@@ -12,4 +12,5 @@ public class ClientServiceSubscription : BaseEntity
     public DateTime ExpireAtUtc { get; set; }
     public bool IsSuspended { get; set; } = false;
     public bool IsSetupCompleted { get; set; } = false;
+    public int ScanCount { get; set; } = 0;
 }

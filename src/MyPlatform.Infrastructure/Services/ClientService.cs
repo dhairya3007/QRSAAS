@@ -22,17 +22,118 @@ public class ClientService : IClientService
 
     public async Task<List<ClientDto>> GetAllClientsAsync()
     {
-        var clients = await _context.Clients
-            .Include(c => c.Subscriptions)
-            .Include(c => c.BusinessDetails)
-            .Include(c => c.Categories)
-            .Include(c => c.Dishes)
-            .Include(c => c.PersonalProfile)
-                .ThenInclude(p => p!.Links)
+        var rawClients = await _context.Clients
+            .AsNoTracking()
             .OrderByDescending(c => c.CreatedAtUtc)
+            .Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.Email,
+                c.QrToken,
+                c.PersonalQrToken,
+                c.IsActive,
+                c.ScanCount,
+                c.CreatedAtUtc,
+                Subscriptions = c.Subscriptions.Select(s => new
+                {
+                    s.ServiceKey,
+                    s.DurationMonths,
+                    s.ExpireAtUtc,
+                    s.IsSuspended,
+                    s.IsSetupCompleted
+                }).ToList(),
+                BusinessDetails = c.BusinessDetails == null ? null : new
+                {
+                    c.BusinessDetails.Name,
+                    c.BusinessDetails.Phone,
+                    c.BusinessDetails.Address,
+                    c.BusinessDetails.LogoUrl,
+                    c.BusinessDetails.Theme,
+                    c.BusinessDetails.ThemeUpdated
+                },
+                HasCategories = c.Categories.Any(),
+                HasDishes = c.Dishes.Any(),
+                PersonalProfile = c.PersonalProfile == null ? null : new
+                {
+                    c.PersonalProfile.Bio,
+                    c.PersonalProfile.ProfilePicUrl,
+                    c.PersonalProfile.Designation,
+                    HasLinks = c.PersonalProfile.Links.Any()
+                }
+            })
             .ToListAsync();
 
-        return clients.Select(MapToClientDto).ToList();
+        return rawClients.Select(c =>
+        {
+            var services = c.Subscriptions.Select(s => s.ServiceKey).ToList();
+            var durations = c.Subscriptions.ToDictionary(s => s.ServiceKey, s => s.DurationMonths);
+            var expiries = c.Subscriptions.ToDictionary(s => s.ServiceKey, s => s.ExpireAtUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"));
+            var maxExpiry = c.Subscriptions.OrderByDescending(s => s.ExpireAtUtc).FirstOrDefault()?.ExpireAtUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                ?? c.CreatedAtUtc.AddMonths(1).ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+            var suspendedServices = c.Subscriptions.Where(s => s.IsSuspended).Select(s => s.ServiceKey).ToList();
+
+            // Calculate completed setups dynamically: full setup requires all required details
+            var completedSetups = new List<string>();
+            if (c.Subscriptions.Any(s => s.ServiceKey == ServiceType.RestaurantMenu))
+            {
+                var isMarked = c.Subscriptions.Any(s => s.ServiceKey == ServiceType.RestaurantMenu && s.IsSetupCompleted);
+                var hasBusiness = !string.IsNullOrEmpty(c.BusinessDetails?.Name);
+                var hasCategories = c.HasCategories;
+                var hasDishes = c.HasDishes;
+
+                // Full setup for Restaurant Menu requires Business Profile, Categories, and Dishes
+                if ((hasBusiness && hasCategories && hasDishes) || (isMarked && (hasCategories || hasDishes)))
+                {
+                    completedSetups.Add(ServiceType.RestaurantMenu);
+                }
+            }
+
+            if (c.Subscriptions.Any(s => s.ServiceKey == ServiceType.PersonalQr))
+            {
+                var isMarked = c.Subscriptions.Any(s => s.ServiceKey == ServiceType.PersonalQr && s.IsSetupCompleted);
+                var p = c.PersonalProfile;
+                var hasProfile = p != null && (!string.IsNullOrEmpty(p.Bio) || !string.IsNullOrEmpty(p.ProfilePicUrl) || !string.IsNullOrEmpty(p.Designation));
+                var hasLinks = p != null && p.HasLinks;
+
+                // Full setup for Personal QR requires Profile Details and CTA Links
+                if ((hasProfile && hasLinks) || (isMarked && (hasProfile || hasLinks)))
+                {
+                    completedSetups.Add(ServiceType.PersonalQr);
+                }
+            }
+
+            return new ClientDto
+            {
+                Id = c.Id.ToString(),
+                Name = c.Name,
+                Email = c.Email,
+                Services = services,
+                ServiceDurations = durations,
+                ServiceExpiries = expiries,
+                ExpireAt = maxExpiry,
+                QrToken = c.QrToken,
+                PersonalQrToken = c.PersonalQrToken,
+                Theme = c.BusinessDetails?.Theme ?? "modern",
+                ThemeUpdated = c.BusinessDetails?.ThemeUpdated ?? false,
+                IsActive = c.IsActive,
+                IsServiceSuspended = suspendedServices.Count > 0,
+                SuspendedServices = suspendedServices,
+                CompletedSetups = completedSetups,
+                IsSetupComplete = completedSetups.Count > 0,
+                ScanCount = c.ScanCount,
+                CreatedAt = c.CreatedAtUtc,
+                BusinessDetails = c.BusinessDetails == null ? null : new BusinessDetailsDto
+                {
+                    Name = c.BusinessDetails.Name,
+                    Phone = c.BusinessDetails.Phone,
+                    Address = c.BusinessDetails.Address,
+                    Logo = c.BusinessDetails.LogoUrl,
+                    Theme = c.BusinessDetails.Theme
+                }
+            };
+        }).ToList();
     }
 
     public async Task<ClientDto> GetClientByIdAsync(Guid id)
@@ -399,22 +500,19 @@ public class ClientService : IClientService
 
     public async Task<AdminStatsDto> GetAdminStatsAsync()
     {
-        var clients = await _context.Clients
-            .Include(c => c.Subscriptions)
+        var total = await _context.Clients.CountAsync();
+        var active = await _context.Clients.CountAsync(c => c.IsActive);
+
+        var subs = await _context.ClientServiceSubscriptions
+            .AsNoTracking()
+            .Select(s => new { s.ServiceKey, s.DurationMonths })
             .ToListAsync();
 
-        var total = clients.Count;
-        var active = clients.Count(c => c.IsActive);
-
-        // Revenue calculation matching frontend: 1200 for restaurant_menu, 800 for personal_qr per month
         decimal revenue = 0;
-        foreach (var c in clients)
+        foreach (var sub in subs)
         {
-            foreach (var sub in c.Subscriptions)
-            {
-                var pricePerMonth = sub.ServiceKey == ServiceType.RestaurantMenu ? 1200 : 800;
-                revenue += pricePerMonth * sub.DurationMonths;
-            }
+            var pricePerMonth = sub.ServiceKey == ServiceType.RestaurantMenu ? 1200 : 800;
+            revenue += pricePerMonth * sub.DurationMonths;
         }
 
         return new AdminStatsDto

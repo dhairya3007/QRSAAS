@@ -22,8 +22,10 @@ public class PublicQrService : IPublicQrService
 
     public async Task<TokenIdentifyResponseDto> IdentifyTokenAsync(string token)
     {
-        // 1. Check Personal QR tokens
-        var isPersonalQr = await _context.PersonalQrProfiles.AnyAsync(p => p.QrToken == token);
+        // 1. Check Personal QR tokens (on profile or client)
+        var isPersonalQr = await _context.PersonalQrProfiles.AnyAsync(p => p.QrToken == token)
+            || await _context.Clients.AnyAsync(c => c.PersonalQrToken == token);
+
         if (isPersonalQr)
         {
             return new TokenIdentifyResponseDto { Type = ServiceType.PersonalQr };
@@ -122,6 +124,22 @@ public class PublicQrService : IPublicQrService
 
         if (profile == null)
         {
+            // Fallback: check if token matches client.PersonalQrToken
+            var clientWithProfile = await _context.Clients
+                .Include(c => c.Subscriptions)
+                .Include(c => c.PersonalProfile)
+                    .ThenInclude(p => p!.Links)
+                .FirstOrDefaultAsync(c => c.PersonalQrToken == token);
+
+            if (clientWithProfile?.PersonalProfile != null)
+            {
+                profile = clientWithProfile.PersonalProfile;
+                profile.Client = clientWithProfile;
+            }
+        }
+
+        if (profile == null)
+        {
             throw new KeyNotFoundException("Invalid QR Token.");
         }
 
@@ -204,25 +222,63 @@ public class PublicQrService : IPublicQrService
 
     public async Task<bool> IncrementScanCountAsync(string token)
     {
-        // 1. Check if token is restaurant menu token
-        var client = await _context.Clients.FirstOrDefaultAsync(c => c.QrToken == token);
-        if (client != null)
+        if (string.IsNullOrWhiteSpace(token)) return false;
+
+        // 1. Match Restaurant Menu token on Clients table (c.QrToken)
+        var restaurantClient = await _context.Clients
+            .Include(c => c.Subscriptions)
+            .FirstOrDefaultAsync(c => c.QrToken == token);
+
+        if (restaurantClient != null)
         {
-            client.ScanCount++;
+            restaurantClient.ScanCount++;
+            var sub = restaurantClient.Subscriptions.FirstOrDefault(s => s.ServiceKey == ServiceType.RestaurantMenu);
+            if (sub != null)
+            {
+                sub.ScanCount++;
+            }
             await _context.SaveChangesAsync();
             return true;
         }
 
-        // 2. Check if token is personal qr token
+        // 2. Match Personal QR token on Clients table (c.PersonalQrToken)
+        var personalClient = await _context.Clients
+            .Include(c => c.Subscriptions)
+            .FirstOrDefaultAsync(c => c.PersonalQrToken == token);
+
+        if (personalClient != null)
+        {
+            personalClient.ScanCount++;
+            var sub = personalClient.Subscriptions.FirstOrDefault(s => s.ServiceKey == ServiceType.PersonalQr);
+            if (sub != null)
+            {
+                sub.ScanCount++;
+            }
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        // 3. Match on PersonalQrProfiles table by QrToken
         var profile = await _context.PersonalQrProfiles
-            .Include(p => p.Client)
             .FirstOrDefaultAsync(p => p.QrToken == token);
 
         if (profile != null)
         {
-            profile.Client.ScanCount++;
-            await _context.SaveChangesAsync();
-            return true;
+            var pClient = await _context.Clients
+                .Include(c => c.Subscriptions)
+                .FirstOrDefaultAsync(c => c.Id == profile.ClientId);
+
+            if (pClient != null)
+            {
+                pClient.ScanCount++;
+                var sub = pClient.Subscriptions.FirstOrDefault(s => s.ServiceKey == ServiceType.PersonalQr);
+                if (sub != null)
+                {
+                    sub.ScanCount++;
+                }
+                await _context.SaveChangesAsync();
+                return true;
+            }
         }
 
         return false;
@@ -265,9 +321,26 @@ public class PublicQrService : IPublicQrService
         return true;
     }
 
-    public async Task<int> GetScanCountByClientIdAsync(Guid clientId)
+    public async Task<int> GetScanCountByClientIdAsync(Guid clientId, string? serviceKey = null)
     {
-        var client = await _context.Clients.FindAsync(clientId);
-        return client?.ScanCount ?? 0;
+        if (!string.IsNullOrWhiteSpace(serviceKey))
+        {
+            var subScan = await _context.ClientServiceSubscriptions
+                .AsNoTracking()
+                .Where(s => s.ClientId == clientId && s.ServiceKey == serviceKey)
+                .Select(s => (int?)s.ScanCount)
+                .FirstOrDefaultAsync();
+
+            if (subScan.HasValue)
+            {
+                return subScan.Value;
+            }
+        }
+
+        return await _context.Clients
+            .AsNoTracking()
+            .Where(c => c.Id == clientId)
+            .Select(c => c.ScanCount)
+            .FirstOrDefaultAsync();
     }
 }

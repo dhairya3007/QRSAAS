@@ -24,12 +24,12 @@ public class AnalyticsController : ControllerBase
     /// Gets scan count for client
     /// </summary>
     [HttpGet("scans")]
-    public async Task<IActionResult> GetScanCount([FromQuery] Guid? clientId = null)
+    public async Task<IActionResult> GetScanCount([FromQuery] Guid? clientId = null, [FromQuery] string? service = null)
     {
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
-        var count = await _publicQrService.GetScanCountByClientIdAsync(targetClientId.Value);
+        var count = await _publicQrService.GetScanCountByClientIdAsync(targetClientId.Value, service);
         return Ok(new { scanCount = count });
     }
 
