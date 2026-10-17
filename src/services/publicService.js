@@ -68,16 +68,21 @@ export const publicService = {
     const normalizedLinks = Array.isArray(rawProfile.links)
       ? rawProfile.links.map(l => ({
           id: l.id || '',
-          title: l.title || '',
-          customLabel: l.title || '',
-          url: l.url || '',
-          value: l.url || '',
+          category: l.category || 'Social Media',
+          type: l.type || l.icon || 'Custom',
+          title: l.title || l.customLabel || '',
+          customLabel: l.customLabel || l.title || '',
+          url: l.url || l.value || '',
+          value: l.value || l.url || '',
           icon: l.icon || 'globe',
-          type: l.icon || 'Custom',
           clicks: l.clicks || 0,
           displayOrder: l.displayOrder || 0,
           isActive: l.isActive !== false,
           isEnabled: l.isActive !== false && l.isEnabled !== false,
+          countryCode: l.countryCode || null,
+          richText: l.richText || '',
+          file: l.file || null,
+          mediaItems: Array.isArray(l.mediaItems) ? l.mediaItems : [],
         }))
       : [];
 

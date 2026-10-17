@@ -153,17 +153,38 @@ const PublicCard = () => {
     publicService.incrementLinkClick(token, link.id).catch(console.error);
 
     if (link.type === 'Share') {
-      if (navigator.share) {
-        navigator.share({
-          title: `${profile.firstName} ${profile.lastName} - Digital Card`,
-          text: `Check out ${profile.firstName}'s digital profile!`,
-          url: window.location.href
-        }).catch(console.error);
-      } else {
-        setShowShareModal(true);
-      }
-    } else if (link.type === 'WhatsApp') {
       setShowShareModal(true);
+    } else if (link.type === 'WhatsApp') {
+      const code = link.countryCode ? link.countryCode.replace('+', '') : '91';
+      const num = (link.value || '').replace(/\D/g, '');
+      if (num) {
+        window.open(`https://wa.me/${code}${num}`, '_blank');
+      } else {
+        alert('WhatsApp number is not configured.');
+      }
+    } else if (link.type === 'Call') {
+      const code = link.countryCode || '+91';
+      const num = (link.value || '').trim();
+      window.location.href = `tel:${code}${num}`;
+    } else if (link.type === 'Download') {
+      if (link.file && link.file.src) {
+        const a = document.createElement('a');
+        a.href = link.file.src;
+        a.download = link.file.name || 'downloaded-file';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else if (link.value) {
+        const a = document.createElement('a');
+        a.href = link.value;
+        a.download = link.customLabel || 'downloaded-file';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        alert('No file available for download.');
+      }
     } else if (link.type === 'Inquiry Form') {
       setShowInquiryModal(true);
     } else if (link.category === 'Media') {
@@ -171,9 +192,6 @@ const PublicCard = () => {
       setMediaIndex(0);
     } else if (link.type === 'Text') {
       setActiveTextItem(link);
-    } else if (link.type === 'Call') {
-      const code = link.countryCode || '+91';
-      window.location.href = `tel:${code}${link.value}`;
     } else if (link.type === 'Email') {
       window.location.href = `mailto:${link.value}`;
     } else {
@@ -453,6 +471,22 @@ const PublicCard = () => {
                   <button type="button" className="btn-close" onClick={() => setShowShareModal(false)}></button>
                 </div>
                 <div className="modal-body p-4">
+                  <button 
+                    onClick={() => {
+                      const text = encodeURIComponent(`Check out ${profile.firstName || 'this'}'s digital profile: ${window.location.href}`);
+                      window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+                      setShowShareModal(false);
+                    }}
+                    className="btn w-100 fw-bold py-3 rounded-3 text-white mb-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
+                    style={{ backgroundColor: '#25D366' }}
+                  >
+                    <MessageSquare size={18} /> Share to WhatsApp Contact
+                  </button>
+
+                  <div className="text-center text-muted small my-3 fw-bold" style={{ fontSize: '11px', letterSpacing: '0.5px' }}>
+                    — OR SEND TO A SPECIFIC NUMBER —
+                  </div>
+
                   <label className="form-label small fw-bold text-muted">Enter WhatsApp Number</label>
                   <div className="input-group mb-3">
                     <select className="form-select bg-light" style={{ maxWidth: '100px' }} value={shareCountryCode} onChange={(e) => setShareCountryCode(e.target.value)}>
@@ -462,8 +496,8 @@ const PublicCard = () => {
                     </select>
                     <input type="number" className="form-control p-3" placeholder="e.g. 9876543210" value={sharePhone} onChange={(e) => setSharePhone(e.target.value)} />
                   </div>
-                  <button onClick={handleShareSubmit} className="btn w-100 fw-bold py-3 rounded-3 text-white" style={{ backgroundColor: '#25D366' }}>
-                    Send Link
+                  <button onClick={handleShareSubmit} className="btn btn-outline-success w-100 fw-bold py-2 rounded-3">
+                    Send to This Number
                   </button>
                 </div>
               </div>

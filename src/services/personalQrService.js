@@ -21,16 +21,21 @@ export const personalQrService = {
     const normalizedLinks = Array.isArray(data.links)
       ? data.links.map(l => ({
           id: l.id || '',
-          title: l.title || '',
-          customLabel: l.title || '',
-          url: l.url || '',
-          value: l.url || '',
+          category: l.category || 'Social Media',
+          type: l.type || l.icon || 'Custom',
+          title: l.title || l.customLabel || '',
+          customLabel: l.customLabel || l.title || '',
+          url: l.url || l.value || '',
+          value: l.value || l.url || '',
           icon: l.icon || 'globe',
-          type: l.icon || 'Custom',
           clicks: l.clicks || 0,
           displayOrder: l.displayOrder || 0,
           isActive: l.isActive !== false,
           isEnabled: l.isActive !== false && l.isEnabled !== false,
+          countryCode: l.countryCode || null,
+          richText: l.richText || '',
+          file: l.file || null,
+          mediaItems: Array.isArray(l.mediaItems) ? l.mediaItems : [],
         }))
       : [];
 
@@ -65,13 +70,21 @@ export const personalQrService = {
     const linksDto = Array.isArray(profileData.links)
       ? profileData.links.map((l, index) => ({
           id: l.id && !l.id.includes('.') ? l.id : null,
+          category: l.category || 'Social Media',
+          type: l.type || 'Website',
           title: l.customLabel || l.title || l.type || 'Link',
+          customLabel: l.customLabel || l.title || l.type || 'Link',
           url: l.value || l.url || '',
-          icon: l.type || l.icon || 'globe',
+          value: l.value || l.url || '',
+          icon: l.icon || l.type || 'globe',
           clicks: l.clicks || 0,
           displayOrder: l.displayOrder !== undefined ? l.displayOrder : index,
           isActive: l.isEnabled !== false && l.isActive !== false,
           isEnabled: l.isEnabled !== false && l.isActive !== false,
+          countryCode: l.countryCode || null,
+          richText: l.richText || null,
+          file: l.file || null,
+          mediaItems: Array.isArray(l.mediaItems) ? l.mediaItems : [],
         }))
       : undefined;
 

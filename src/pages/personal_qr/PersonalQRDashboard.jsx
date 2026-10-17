@@ -285,7 +285,10 @@ const PersonalQRDashboard = () => {
               ) : profile.links.map((link) => (
                 <tr key={link.id} style={{ opacity: link.isEnabled === false ? 0.6 : 1 }}>
                   <td className="text-muted"><span style={{ fontSize: '20px', letterSpacing: '2px', fontWeight: 'bold' }}>::</span></td>
-                  <td><div className="fw-bold text-dark">{link.customLabel || link.type}</div><small className="text-muted">{link.type}</small></td>
+                  <td>
+                    <div className="fw-bold text-dark">{link.customLabel || link.type}</div>
+                    <small className="text-muted">{link.category ? `${link.category} • ` : ''}{link.type}</small>
+                  </td>
                   <td>{link.clicks || link.clickCount || 0}</td>
                   <td><div onClick={() => toggleLinkStatus(link.id)} style={{ cursor: 'pointer' }}>{link.isEnabled !== false ? <ToggleRight size={24} style={{ color: '#5e35b1' }} /> : <ToggleLeft size={24} className="text-muted" />}</div></td>
                   <td className="text-end">

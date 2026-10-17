@@ -100,13 +100,14 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
   const handleMediaUpload = (e) => {
     const files = Array.from(e.target.files);
     files.forEach(f => {
+      const isVideo = f.type.startsWith('video/');
       const reader = new FileReader();
       reader.onloadend = () => {
         setMediaItems(prev => [...prev, { 
-          id: Date.now().toString() + Math.random(), 
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 7), 
           src: reader.result, 
           label: '',
-          type: f.type.startsWith('video/') ? 'video' : 'image'
+          type: isVideo ? 'video' : 'image'
         }]);
       };
       reader.readAsDataURL(f);
@@ -120,7 +121,7 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
     if (f) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFile({ name: f.name, src: reader.result });
+        setFile({ name: f.name, src: reader.result, size: f.size });
       };
       reader.readAsDataURL(f);
     }
@@ -135,37 +136,49 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
   };
 
   const handleSaveForm = () => {
-    if (!['Inquiry Form', 'Share', 'Call', 'WhatsApp'].includes(type) && !customLabel) {
+    // Only category !== 'Other' or type === 'Download' requires Custom Label
+    const needsCustomLabel = category !== 'Other' || type === 'Download';
+    if (needsCustomLabel && !customLabel.trim()) {
       return alert('Custom Label is required.');
     }
     
     if (['Social Media', 'Non-Social'].includes(category)) {
-      if (!value) return alert('Value / Link is required.');
+      if (!value.trim()) return alert('Value / Link is required.');
     }
     if (category === 'Media' && mediaItems.length === 0) {
-      return alert('Upload at least one media file.');
+      return alert('Upload at least one image or video.');
     }
     if (type === 'Download' && !file) {
-      return alert('Upload a file.');
+      return alert('Please upload a file.');
     }
-    if (['Call', 'WhatsApp'].includes(type) && !value) {
-      return alert('Number is required.');
+    if (['Call', 'WhatsApp'].includes(type) && !value.trim()) {
+      return alert('Phone/WhatsApp number is required.');
     }
-    if (type === 'Text' && !richText) {
+    if (type === 'Text' && !richText.trim()) {
       return alert('Text content is required.');
     }
+
+    const defaultTitle = ['Share', 'Call', 'WhatsApp', 'Inquiry Form', 'Text'].includes(type)
+      ? type
+      : (customLabel || type);
 
     const newLinkObj = {
       id: isEditing ? editingItem.id : Date.now().toString(),
       category,
       type,
-      customLabel,
+      customLabel: needsCustomLabel ? customLabel : defaultTitle,
+      title: needsCustomLabel ? customLabel : defaultTitle,
       countryCode: ['Call', 'WhatsApp', 'Share'].includes(type) ? countryCode : null,
-      value,
-      mediaItems,
-      richText,
-      file,
-      isEnabled: isEditing ? (editingItem.isEnabled !== false) : true
+      value: value || '',
+      url: value || '',
+      icon: editingItem?.icon || type.toLowerCase(),
+      mediaItems: category === 'Media' ? mediaItems : [],
+      richText: type === 'Text' ? richText : '',
+      file: type === 'Download' ? file : null,
+      clicks: editingItem?.clicks || 0,
+      displayOrder: editingItem?.displayOrder !== undefined ? editingItem.displayOrder : activeLinks.length,
+      isEnabled: isEditing ? (editingItem.isEnabled !== false) : true,
+      isActive: isEditing ? (editingItem.isActive !== false) : true
     };
 
     if (isEditing) {
@@ -262,14 +275,14 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
               ) : (
                 <div className="row g-3 mb-4">
                   
-                  {/* Label Input */}
-                  {!['Share', 'Call', 'WhatsApp'].includes(type) && (
+                  {/* Label Input: Only shown for Social Media, Non-Social, Media, and Download in Other */}
+                  {(category !== 'Other' || type === 'Download') && (
                     <div className="col-md-12">
                       <label className="form-label small fw-bold text-muted">Custom Label (Displayed to User)</label>
                       <input 
                         type="text" 
                         className="form-control border-0 shadow-sm p-3" 
-                        placeholder="e.g. Follow us on Instagram, Call Us, Download Brochure"
+                        placeholder={type === 'Download' ? "e.g. Download Brochure" : category === 'Media' ? "e.g. Our Portfolio / Gallery" : "e.g. Follow us on Instagram, Visit Website"}
                         value={customLabel}
                         onChange={(e) => setCustomLabel(e.target.value)}
                       />
@@ -344,7 +357,7 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
                       {file && (
                         <div className="mt-2 p-2 bg-white border rounded d-flex justify-content-between align-items-center shadow-sm">
                           <span className="small text-truncate fw-bold"><Download size={14} className="me-2"/>{file.name}</span>
-                          <button onClick={() => setFile(null)} className="btn btn-sm text-danger p-0"><Trash2 size={16}/></button>
+                          <button type="button" onClick={() => setFile(null)} className="btn btn-sm text-danger p-0"><Trash2 size={16}/></button>
                         </div>
                       )}
                     </div>
@@ -361,11 +374,11 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
                   {/* Media Uploads */}
                   {category === 'Media' && (
                     <div className="col-md-12">
-                      <label className="form-label small fw-bold text-muted">Upload Media (Multiple)</label>
+                      <label className="form-label small fw-bold text-muted">Upload Media (Multiple Images or Videos)</label>
                       <input 
                         type="file" 
                         multiple
-                        accept={type === 'Video' ? "video/*" : "image/*"}
+                        accept={type === 'Video' ? "video/*" : "image/*,video/*"}
                         className="form-control border-0 shadow-sm p-3"
                         onChange={handleMediaUpload}
                       />
@@ -375,12 +388,13 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
                           {mediaItems.map((item) => (
                             <div key={item.id} className="col-md-4">
                               <div className="card border-0 shadow-sm rounded-4 overflow-hidden h-100 position-relative">
-                                {type === 'Video' ? (
+                                {item.type === 'video' ? (
                                   <video src={item.src} className="w-100" style={{ height: '120px', objectFit: 'cover' }} />
                                 ) : (
                                   <img src={item.src} alt="Upload" className="w-100" style={{ height: '120px', objectFit: 'cover' }} />
                                 )}
                                 <button 
+                                  type="button"
                                   onClick={() => removeMedia(item.id)} 
                                   className="btn btn-sm btn-danger position-absolute top-0 end-0 m-2 rounded-circle shadow p-1"
                                   style={{ width: '28px', height: '28px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -389,10 +403,11 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
                                 </button>
                                 
                                 <div className="p-2 bg-white">
+                                  <label className="form-label mb-1" style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Custom Label</label>
                                   <input 
                                     type="text" 
                                     className="form-control form-control-sm border-1 shadow-none" 
-                                    placeholder="Add a label..." 
+                                    placeholder="Add custom label..." 
                                     value={item.label || ''}
                                     onChange={(e) => updateMediaLabel(item.id, e.target.value)}
                                   />
