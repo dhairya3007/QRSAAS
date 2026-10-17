@@ -3,6 +3,7 @@ using MyPlatform.Application.DTOs.PersonalQr;
 using MyPlatform.Application.Interfaces;
 using MyPlatform.Domain.Entities;
 using MyPlatform.Infrastructure.Persistence;
+using System.Text.Json;
 
 namespace MyPlatform.Infrastructure.Services;
 
@@ -85,14 +86,44 @@ public class PersonalQrService : IPersonalQrService
                 var isExisting = Guid.TryParse(linkDto.Id, out var parsedId);
                 var existing = isExisting ? profile.Links.FirstOrDefault(l => l.Id == parsedId) : null;
 
+                var title = !string.IsNullOrWhiteSpace(linkDto.CustomLabel)
+                    ? linkDto.CustomLabel
+                    : (!string.IsNullOrWhiteSpace(linkDto.Title) ? linkDto.Title : (linkDto.Type ?? "Link"));
+
+                var url = !string.IsNullOrWhiteSpace(linkDto.Value)
+                    ? linkDto.Value
+                    : (linkDto.Url ?? string.Empty);
+
+                var category = !string.IsNullOrWhiteSpace(linkDto.Category) ? linkDto.Category : "Social Media";
+                var type = !string.IsNullOrWhiteSpace(linkDto.Type) ? linkDto.Type : "Website";
+                var icon = !string.IsNullOrWhiteSpace(linkDto.Icon) ? linkDto.Icon : "globe";
+
+                string? configJson = null;
+                if (!string.IsNullOrEmpty(linkDto.CountryCode) ||
+                    !string.IsNullOrEmpty(linkDto.RichText) ||
+                    linkDto.File != null ||
+                    (linkDto.MediaItems != null && linkDto.MediaItems.Count > 0))
+                {
+                    configJson = JsonSerializer.Serialize(new CtaDynamicConfig
+                    {
+                        CountryCode = linkDto.CountryCode,
+                        RichText = linkDto.RichText,
+                        File = linkDto.File,
+                        MediaItems = linkDto.MediaItems
+                    });
+                }
+
                 if (existing != null)
                 {
-                    existing.Title = linkDto.Title;
-                    existing.Url = linkDto.Url;
-                    existing.Icon = string.IsNullOrEmpty(linkDto.Icon) ? "globe" : linkDto.Icon;
+                    existing.Category = category;
+                    existing.Type = type;
+                    existing.Title = title;
+                    existing.Url = url;
+                    existing.Icon = icon;
                     existing.Clicks = linkDto.Clicks;
                     existing.DisplayOrder = order++;
                     existing.IsActive = linkDto.IsActive && (linkDto.IsEnabled ?? true);
+                    existing.ConfigJson = configJson;
                     existing.UpdatedAtUtc = DateTime.UtcNow;
                 }
                 else
@@ -100,12 +131,15 @@ public class PersonalQrService : IPersonalQrService
                     var newLink = new CallToActionLink
                     {
                         ProfileId = profile.Id,
-                        Title = linkDto.Title,
-                        Url = linkDto.Url,
-                        Icon = string.IsNullOrEmpty(linkDto.Icon) ? "globe" : linkDto.Icon,
+                        Category = category,
+                        Type = type,
+                        Title = title,
+                        Url = url,
+                        Icon = icon,
                         Clicks = linkDto.Clicks,
                         DisplayOrder = order++,
                         IsActive = linkDto.IsActive && (linkDto.IsEnabled ?? true),
+                        ConfigJson = configJson,
                         CreatedAtUtc = DateTime.UtcNow
                     };
                     _context.CallToActionLinks.Add(newLink);
@@ -182,16 +216,37 @@ public class PersonalQrService : IPersonalQrService
             EducationPhD = p.EducationPhD,
             Links = p.Links
                 .OrderBy(l => l.DisplayOrder)
-                .Select(l => new CallToActionLinkDto
+                .Select(l =>
                 {
-                    Id = l.Id.ToString(),
-                    Title = l.Title,
-                    Url = l.Url,
-                    Icon = l.Icon,
-                    Clicks = l.Clicks,
-                    DisplayOrder = l.DisplayOrder,
-                    IsActive = l.IsActive,
-                    IsEnabled = l.IsActive
+                    CtaDynamicConfig? config = null;
+                    if (!string.IsNullOrEmpty(l.ConfigJson))
+                    {
+                        try
+                        {
+                            config = JsonSerializer.Deserialize<CtaDynamicConfig>(l.ConfigJson);
+                        }
+                        catch { }
+                    }
+
+                    return new CallToActionLinkDto
+                    {
+                        Id = l.Id.ToString(),
+                        Category = l.Category,
+                        Type = l.Type,
+                        Title = l.Title,
+                        CustomLabel = l.Title,
+                        Url = l.Url,
+                        Value = l.Url,
+                        Icon = l.Icon,
+                        Clicks = l.Clicks,
+                        DisplayOrder = l.DisplayOrder,
+                        IsActive = l.IsActive,
+                        IsEnabled = l.IsActive,
+                        CountryCode = config?.CountryCode,
+                        RichText = config?.RichText,
+                        File = config?.File,
+                        MediaItems = config?.MediaItems ?? new List<CtaMediaItemDto>()
+                    };
                 }).ToList()
         };
     }

@@ -236,6 +236,8 @@ if (app.Environment.IsDevelopment())
         var roleManager =
             services.GetRequiredService<RoleManager<IdentityRole>>();
 
+        await context.Database.MigrateAsync();
+
         await DbInitializer.SeedAsync(
             context,
             userManager,

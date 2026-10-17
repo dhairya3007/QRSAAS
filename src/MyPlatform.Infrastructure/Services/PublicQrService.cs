@@ -7,6 +7,7 @@ using MyPlatform.Application.Interfaces;
 using MyPlatform.Domain.Entities;
 using MyPlatform.Domain.Enums;
 using MyPlatform.Infrastructure.Persistence;
+using System.Text.Json;
 
 namespace MyPlatform.Infrastructure.Services;
 
@@ -165,16 +166,37 @@ public class PublicQrService : IPublicQrService
                 Links = profile.Links
                     .Where(l => l.IsActive)
                     .OrderBy(l => l.DisplayOrder)
-                    .Select(l => new CallToActionLinkDto
+                    .Select(l =>
                     {
-                        Id = l.Id.ToString(),
-                        Title = l.Title,
-                        Url = l.Url,
-                        Icon = l.Icon,
-                        Clicks = l.Clicks,
-                        DisplayOrder = l.DisplayOrder,
-                        IsActive = l.IsActive,
-                        IsEnabled = l.IsActive
+                        CtaDynamicConfig? config = null;
+                        if (!string.IsNullOrEmpty(l.ConfigJson))
+                        {
+                            try
+                            {
+                                config = JsonSerializer.Deserialize<CtaDynamicConfig>(l.ConfigJson);
+                            }
+                            catch { }
+                        }
+
+                        return new CallToActionLinkDto
+                        {
+                            Id = l.Id.ToString(),
+                            Category = l.Category,
+                            Type = l.Type,
+                            Title = l.Title,
+                            CustomLabel = l.Title,
+                            Url = l.Url,
+                            Value = l.Url,
+                            Icon = l.Icon,
+                            Clicks = l.Clicks,
+                            DisplayOrder = l.DisplayOrder,
+                            IsActive = l.IsActive,
+                            IsEnabled = l.IsActive,
+                            CountryCode = config?.CountryCode,
+                            RichText = config?.RichText,
+                            File = config?.File,
+                            MediaItems = config?.MediaItems ?? new List<CtaMediaItemDto>()
+                        };
                     }).ToList()
             }
         };

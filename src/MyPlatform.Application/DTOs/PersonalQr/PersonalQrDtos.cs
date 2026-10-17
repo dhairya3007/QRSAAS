@@ -1,15 +1,48 @@
 namespace MyPlatform.Application.DTOs.PersonalQr;
 
+public class CtaMediaItemDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Src { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string Type { get; set; } = "image"; // "image" or "video"
+}
+
+public class CtaFileDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Src { get; set; } = string.Empty;
+    public long? Size { get; set; }
+}
+
+public class CtaDynamicConfig
+{
+    public string? CountryCode { get; set; }
+    public string? RichText { get; set; }
+    public CtaFileDto? File { get; set; }
+    public List<CtaMediaItemDto>? MediaItems { get; set; }
+}
+
 public class CallToActionLinkDto
 {
     public string Id { get; set; } = string.Empty;
+    public string Category { get; set; } = "Social Media";
+    public string Type { get; set; } = "Website";
     public string Title { get; set; } = string.Empty;
+    public string? CustomLabel { get; set; }
     public string Url { get; set; } = string.Empty;
+    public string? Value { get; set; }
     public string Icon { get; set; } = "globe";
     public int Clicks { get; set; }
     public int DisplayOrder { get; set; }
     public bool IsActive { get; set; } = true;
     public bool? IsEnabled { get; set; } // alias used in some frontend components
+
+    // Dynamic fields
+    public string? CountryCode { get; set; }
+    public string? RichText { get; set; }
+    public CtaFileDto? File { get; set; }
+    public List<CtaMediaItemDto>? MediaItems { get; set; }
 }
 
 public class PersonalQrProfileDto
