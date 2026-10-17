@@ -6,6 +6,7 @@ import {
   ArrowUp, ArrowDown, Edit2, Download, Share2, ClipboardList, Eye, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
+import { compressImageUnder50KB, checkMaxFileSize } from '../../utils/imageCompressor';
 
 const CATEGORIES = ['Social Media', 'Non-Social', 'Media', 'Other'];
 
@@ -97,34 +98,69 @@ const CallToActionButtons = ({ profile, saveLinks, editingItem, onClose }) => {
     setFile(null);
   };
 
-  const handleMediaUpload = (e) => {
+  const handleMediaUpload = async (e) => {
     const files = Array.from(e.target.files);
-    files.forEach(f => {
+    for (const f of files) {
       const isVideo = f.type.startsWith('video/');
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setMediaItems(prev => [...prev, { 
-          id: Date.now().toString() + Math.random().toString(36).substring(2, 7), 
-          src: reader.result, 
-          label: '',
-          type: isVideo ? 'video' : 'image'
-        }]);
-      };
-      reader.readAsDataURL(f);
-    });
+      if (isVideo) {
+        const { isValid, sizeKb } = checkMaxFileSize(f, 50);
+        if (!isValid) {
+          alert(`Video "${f.name}" is ${sizeKb}KB. Files must be strictly under 50KB. Please select a smaller video.`);
+          continue;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setMediaItems(prev => [...prev, { 
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 7), 
+            src: reader.result, 
+            label: '',
+            type: 'video'
+          }]);
+        };
+        reader.readAsDataURL(f);
+      } else {
+        try {
+          const compressedSrc = await compressImageUnder50KB(f);
+          setMediaItems(prev => [...prev, { 
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 7), 
+            src: compressedSrc, 
+            label: '',
+            type: 'image'
+          }]);
+        } catch (err) {
+          console.error('Failed to compress media image:', err);
+        }
+      }
+    }
     // Clear input so same file can be selected again if removed
     e.target.value = '';
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const f = e.target.files[0];
     if (f) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFile({ name: f.name, src: reader.result, size: f.size });
-      };
-      reader.readAsDataURL(f);
+      if (f.type.startsWith('image/')) {
+        try {
+          const compressedSrc = await compressImageUnder50KB(f);
+          setFile({ name: f.name, src: compressedSrc, size: Math.round(compressedSrc.length * 0.75) });
+        } catch (err) {
+          console.error('Failed to compress file image:', err);
+        }
+      } else {
+        const { isValid, sizeKb } = checkMaxFileSize(f, 50);
+        if (!isValid) {
+          alert(`File "${f.name}" is ${sizeKb}KB. All files must be strictly under 50KB. Please choose a smaller file.`);
+          e.target.value = '';
+          return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setFile({ name: f.name, src: reader.result, size: f.size });
+        };
+        reader.readAsDataURL(f);
+      }
     }
+    e.target.value = '';
   };
 
   const updateMediaLabel = (id, label) => {

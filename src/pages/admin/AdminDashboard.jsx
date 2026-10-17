@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Users, CreditCard, Plus, Copy, CheckCircle, Edit, DollarSign } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import syncService from '../../services/syncService';
@@ -18,27 +18,34 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const isFetchingRef = useRef(false);
+  const lastFetchRef = useRef(0);
+
   useEffect(() => {
-    fetchData();
+    fetchData(false, true);
 
     // Instant real-time cross-tab sync
     const unsubscribe = syncService.subscribe(() => {
       if (!showCreateModal) {
-        fetchData(true);
+        fetchData(true, true);
       }
     });
 
-    // Gentle 10-second idle background refresh (only when tab is active)
+    // Gentle 15-second idle background refresh (only when tab is active)
     const interval = setInterval(() => {
       if (document.hidden) return;
       if (!showCreateModal) {
         fetchData(true);
       }
-    }, 10000);
+    }, 15000);
 
     const onFocusOrVisible = () => {
+      if (document.hidden) return;
       if (!showCreateModal) {
-        fetchData(true);
+        // Only refresh if more than 10 seconds since last fetch
+        if (Date.now() - lastFetchRef.current > 10000) {
+          fetchData(true);
+        }
       }
     };
     window.addEventListener('focus', onFocusOrVisible);
@@ -52,7 +59,11 @@ const AdminDashboard = () => {
     };
   }, [showCreateModal]);
 
-  const fetchData = async (isSilent = false) => {
+  const fetchData = async (isSilent = false, force = false) => {
+    if (isFetchingRef.current) return;
+    if (!force && isSilent && Date.now() - lastFetchRef.current < 10000) return;
+
+    isFetchingRef.current = true;
     try {
       if (!isSilent) setLoading(true);
       setErrorMsg('');
@@ -71,10 +82,12 @@ const AdminDashboard = () => {
         const active = clientList.filter(c => c.isActive !== false).length;
         setStats({ total, active, revenue: 0 });
       }
+      lastFetchRef.current = Date.now();
     } catch (err) {
       console.error('Failed to load admin data:', err);
       if (!isSilent) setErrorMsg(err.message || 'Error loading clients from backend.');
     } finally {
+      isFetchingRef.current = false;
       if (!isSilent) setLoading(false);
     }
   };

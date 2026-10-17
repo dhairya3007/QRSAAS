@@ -120,9 +120,13 @@ export const publicService = {
    * @returns {Promise<Object>}
    */
   incrementScanCount: async (token) => {
-    return apiClient.post(`/public/qr/${token}/scans`).catch(err => {
+    try {
+      const res = await apiClient.post(`/public/qr/${token}/scans`);
+      syncService.notify('scans');
+      return res;
+    } catch (err) {
       console.warn('Failed to increment scan count:', err);
-    });
+    }
   },
 
   /**

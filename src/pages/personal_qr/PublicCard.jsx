@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
 import { publicService } from '../../services/publicService';
 import syncService from '../../services/syncService';
@@ -9,8 +9,9 @@ import {
 import { Spinner } from 'reactstrap';
 import { PERSONAL_QR_THEMES } from './themes/personalQrThemes';
 
-const PublicCard = () => {
-  const { token } = useParams();
+const PublicCard = ({ token: propToken }) => {
+  const params = useParams();
+  const token = propToken || params.token;
   const location = useLocation();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -31,11 +32,16 @@ const PublicCard = () => {
   const [inquiryForm, setInquiryForm] = useState({ name: '', email: '', message: '' });
   const [inquiryStatus, setInquiryStatus] = useState('');
 
+  // Increment scan/view count exactly once when user visits this public card
+  const hasScannedRef = useRef(false);
   useEffect(() => {
-    if (token) {
+    if (token && !hasScannedRef.current) {
+      hasScannedRef.current = true;
       publicService.incrementScanCount(token);
     }
+  }, [token]);
 
+  useEffect(() => {
     const loadProfile = async () => {
       try {
         const response = await publicService.getPublicPersonalCard(token);

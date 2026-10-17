@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Trash2, Edit2, CheckCircle2, XCircle } from 'lucide-react';
 import { restaurantService } from '../../services/restaurantService';
 import syncService from '../../services/syncService';
+import { compressImageUnder50KB } from '../../utils/imageCompressor';
 
 const DishManagement = () => {
   const [dishes, setDishes] = useState([]);
@@ -80,14 +81,15 @@ const DishManagement = () => {
     }
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewDish(prev => ({ ...prev, image: reader.result }));
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageUnder50KB(file);
+        setNewDish(prev => ({ ...prev, image: compressed }));
+      } catch (err) {
+        console.error('Failed to compress dish image:', err);
+      }
     }
   };
 
@@ -293,10 +295,10 @@ const DishManagement = () => {
                           )}
                           <div>
                             <span className="fw-bold d-block">{dish.name}</span>
-                            <span className={`badge ${dish.type === 'Veg' ? 'bg-success' : 'bg-danger'} me-1`} style={{ fontSize: '10px' }}>
-                              {dish.type}
+                            <span className={`dish-type-badge type-${(dish.type || 'Veg').toLowerCase().trim().replace(/[^a-z0-9]/g, '-')} me-1`} style={{ fontSize: '10px' }}>
+                              {dish.type || 'Veg'}
                             </span>
-                            {dish.quantity && <small className="text-muted">{dish.quantity}</small>}
+                            {dish.quantity && <small className="text-muted ms-1">{dish.quantity}</small>}
                           </div>
                         </div>
                       </td>

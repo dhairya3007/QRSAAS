@@ -148,7 +148,7 @@ export const personalQrService = {
    * @returns {Promise<number>}
    */
   getScanCount: async (clientId = null) => {
-    const params = clientId ? { clientId } : {};
+    const params = { service: 'personal_qr', ...(clientId ? { clientId } : {}) };
     const data = await apiClient.get('/Analytics/scans', params);
     return data?.scanCount || 0;
   },

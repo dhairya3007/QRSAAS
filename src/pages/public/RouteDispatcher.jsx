@@ -54,9 +54,9 @@ const RouteDispatcher = () => {
   // Render the correct service component based on what the backend identified
   switch (serviceType) {
     case 'personal_qr':
-      return <PublicCard />;
+      return <PublicCard token={token} />;
     case 'restaurant_menu':
-      return <MenuPreview />;
+      return <MenuPreview token={token} />;
     // Future services can simply be added as cases here!
     default:
       return <div>Service not recognized.</div>;

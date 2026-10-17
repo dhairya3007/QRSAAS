@@ -8,6 +8,7 @@ import { PERSONAL_QR_THEMES } from './themes/personalQrThemes';
 import ProfileDetails from './ProfileDetails';
 import CallToActionButtons from './CallToActionButtons';
 import QRPreview from './QRPreview';
+import { compressImageUnder50KB } from '../../utils/imageCompressor';
 
 const PersonalQRDashboard = () => {
   const [isActive, setIsActive] = useState(true);
@@ -69,10 +70,11 @@ const PersonalQRDashboard = () => {
 
   const fetchData = async () => {
     try {
-      const [profileData, scans, statusRes] = await Promise.all([
-        personalQrService.getProfile().catch(() => null),
-        personalQrService.getScanCount().catch(() => 0),
-        personalQrService.getStatus().catch(() => ({ isActive: true })),
+      const profileData = await personalQrService.getProfile().catch(() => null);
+      const effectiveClientId = profileData?.clientId || null;
+      const [scans, statusRes] = await Promise.all([
+        personalQrService.getScanCount(effectiveClientId).catch(() => 0),
+        personalQrService.getStatus(effectiveClientId).catch(() => ({ isActive: true })),
       ]);
       setScanCount(scans);
       if (statusRes && statusRes.isActive !== undefined) {
@@ -105,12 +107,15 @@ const PersonalQRDashboard = () => {
     }
   };
 
-  const handlePicUpload = (e) => {
+  const handlePicUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const r = new FileReader();
-      r.onloadend = () => setProfile({ ...profile, profilePic: r.result });
-      r.readAsDataURL(file);
+      try {
+        const compressed = await compressImageUnder50KB(file);
+        setProfile(prev => ({ ...prev, profilePic: compressed }));
+      } catch (err) {
+        console.error('Failed to compress profile picture:', err);
+      }
     }
   };
 

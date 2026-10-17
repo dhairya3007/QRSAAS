@@ -212,7 +212,7 @@ export const restaurantService = {
    * @returns {Promise<number>}
    */
   getScanCount: async (clientId = null) => {
-    const params = clientId ? { clientId } : {};
+    const params = { service: 'restaurant_menu', ...(clientId ? { clientId } : {}) };
     const data = await apiClient.get('/Analytics/scans', params);
     return data?.scanCount || 0;
   },

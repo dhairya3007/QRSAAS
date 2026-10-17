@@ -4,6 +4,7 @@ import { restaurantService } from '../../services/restaurantService';
 import { authService } from '../../services/authService';
 import syncService from '../../services/syncService';
 import { RESTAURANT_THEMES } from './themes/restaurantThemes';
+import { compressImageUnder50KB } from '../../utils/imageCompressor';
 
 const RestaurantMenuDashboard = () => {
   const [stats, setStats] = useState({ categories: 0, dishes: 0, scanCount: 0 });
@@ -129,12 +130,15 @@ const RestaurantMenuDashboard = () => {
     }
   };
 
-  const handleLogoUpload = (e) => {
+  const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const r = new FileReader();
-      r.onloadend = () => setBusiness({ ...business, logo: r.result });
-      r.readAsDataURL(file);
+      try {
+        const compressed = await compressImageUnder50KB(file);
+        setBusiness(prev => ({ ...prev, logo: compressed }));
+      } catch (err) {
+        console.error('Failed to compress restaurant logo:', err);
+      }
     }
   };
 
@@ -189,12 +193,15 @@ const RestaurantMenuDashboard = () => {
     }
   };
 
-  const handleDishImageUpload = (e) => {
+  const handleDishImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const r = new FileReader();
-      r.onloadend = () => setNewDish({ ...newDish, image: r.result });
-      r.readAsDataURL(file);
+      try {
+        const compressed = await compressImageUnder50KB(file);
+        setNewDish(prev => ({ ...prev, image: compressed }));
+      } catch (err) {
+        console.error('Failed to compress dish image:', err);
+      }
     }
   };
 
@@ -394,7 +401,14 @@ const RestaurantMenuDashboard = () => {
               {dishes.map(dish => (
                 <tr key={dish.id}>
                   <td className="text-muted">::</td>
-                  <td className="fw-bold">{dish.name}</td>
+                  <td className="fw-bold">
+                    {dish.name}
+                    {dish.type && (
+                      <span className={`ms-2 dish-type-badge type-${dish.type.toLowerCase().trim().replace(/[^a-z0-9]/g, '-')}`}>
+                        {dish.type}
+                      </span>
+                    )}
+                  </td>
                   <td>₹{dish.price}</td>
                   <td>{categories.find(c => c.id === dish.categoryId)?.name || 'Unknown'}</td>
                   <td><button onClick={() => handleToggleDishStatus(dish.id)} className="btn btn-link p-0 shadow-none border-0">{dish.isActive !== false ? <ToggleRight size={26} className="text-primary" /> : <ToggleLeft size={26} className="text-muted" />}</button></td>

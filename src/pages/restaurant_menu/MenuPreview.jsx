@@ -146,9 +146,13 @@ const MenuPreview = () => {
                                 <img src={dish.image} alt={dish.name} className="dish-image" />
                               )}
                               <div className="d-flex flex-column h-100 justify-content-center">
-                                <h4 className="fw-bold mb-0 d-flex align-items-start" style={{ fontSize: '1.2rem' }}>
-                                  <span className={dish.type === 'Veg' ? 'veg-icon flex-shrink-0' : 'non-veg-icon flex-shrink-0'} style={{ marginTop: '5px' }}></span>
+                                <h4 className="fw-bold mb-0 d-flex align-items-center flex-wrap gap-2" style={{ fontSize: '1.2rem' }}>
                                   <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{dish.name}</span>
+                                  {dish.type && (
+                                    <span className={`dish-type-badge type-${dish.type.toLowerCase().trim().replace(/[^a-z0-9]/g, '-')}`}>
+                                      {dish.type}
+                                    </span>
+                                  )}
                                 </h4>
                                 <div className="d-flex justify-content-between align-items-end mt-3">
                                   <p className="mb-0 opacity-75 text-truncate pe-3">{dish.quantity || ''}</p>

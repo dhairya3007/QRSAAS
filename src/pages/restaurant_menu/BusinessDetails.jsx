@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { restaurantService } from '../../services/restaurantService';
 import syncService from '../../services/syncService';
+import { compressImageUnder50KB } from '../../utils/imageCompressor';
 
 const BusinessDetails = () => {
   const [business, setBusiness] = useState({ name: '', phone: '', address: '', logo: '' });
@@ -95,15 +96,16 @@ const BusinessDetails = () => {
     }
   };
 
-  const handleLogoUpload = (e) => {
+  const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setBusiness({ ...business, logo: reader.result });
+      try {
+        const compressed = await compressImageUnder50KB(file);
+        setBusiness(prev => ({ ...prev, logo: compressed }));
         setSaved(false);
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error('Failed to compress restaurant logo:', err);
+      }
     }
   };
 
