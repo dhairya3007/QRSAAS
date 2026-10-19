@@ -37,7 +37,7 @@ const PublicCard = ({ token: propToken }) => {
   useEffect(() => {
     if (token && !hasScannedRef.current) {
       hasScannedRef.current = true;
-      publicService.incrementScanCount(token);
+      publicService.incrementPersonalCardScanCount(token);
     }
   }, [token]);
 

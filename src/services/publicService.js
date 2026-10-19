@@ -115,7 +115,7 @@ export const publicService = {
   },
 
   /**
-   * Increments the scan count in SQL Server when a visitor opens the QR page
+   * Increments the scan count when a visitor opens the Restaurant Menu QR page
    * @param {string} token
    * @returns {Promise<Object>}
    */
@@ -125,7 +125,22 @@ export const publicService = {
       syncService.notify('scans');
       return res;
     } catch (err) {
-      console.warn('Failed to increment scan count:', err);
+      console.warn('Failed to increment restaurant scan count:', err);
+    }
+  },
+
+  /**
+   * Increments the scan count when a visitor opens the Personal Digital Card
+   * @param {string} token
+   * @returns {Promise<Object>}
+   */
+  incrementPersonalCardScanCount: async (token) => {
+    try {
+      const res = await apiClient.post(`/public/personal-qr/${token}/scans`);
+      syncService.notify('scans');
+      return res;
+    } catch (err) {
+      console.warn('Failed to increment personal card scan count:', err);
     }
   },
 

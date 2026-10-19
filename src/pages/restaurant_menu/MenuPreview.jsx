@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
 import { publicService } from '../../services/publicService';
 import syncService from '../../services/syncService';
@@ -11,6 +11,7 @@ const MenuPreview = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTabId, setActiveTabId] = useState(null);
+  const hasScannedRef = useRef(false);
 
   useEffect(() => {
     let isInitial = true;
@@ -34,8 +35,11 @@ const MenuPreview = () => {
     };
 
     if (token) {
-      // Increment scan count in backend once on load
-      publicService.incrementScanCount(token);
+      // Increment scan count once per visit — guard prevents re-firing on polling/sync
+      if (!hasScannedRef.current) {
+        hasScannedRef.current = true;
+        publicService.incrementScanCount(token);
+      }
       fetchMenu();
 
       // Real-time instant cross-tab sync
