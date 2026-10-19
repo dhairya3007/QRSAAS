@@ -275,6 +275,7 @@ public class ClientService : IClientService
                 var subToRemove = client.Subscriptions.FirstOrDefault(s => s.ServiceKey == sKey);
                 if (subToRemove != null)
                 {
+                    client.Subscriptions.Remove(subToRemove);
                     _context.ClientServiceSubscriptions.Remove(subToRemove);
                 }
             }
@@ -284,15 +285,17 @@ public class ClientService : IClientService
             foreach (var sKey in newServices.Except(currentServices))
             {
                 var months = durations.TryGetValue(sKey, out var m) ? m : 1;
-                client.Subscriptions.Add(new ClientServiceSubscription
+                var newSub = new ClientServiceSubscription
                 {
+                    ClientId = client.Id,
                     ServiceKey = sKey,
                     DurationMonths = months,
                     ExpireAtUtc = DateTime.UtcNow.AddMonths(months),
                     IsSuspended = false,
                     IsSetupCompleted = false,
                     ScanCount = 0
-                });
+                };
+                _context.ClientServiceSubscriptions.Add(newSub);
 
                 if (sKey == ServiceType.PersonalQr)
                 {
@@ -332,10 +335,11 @@ public class ClientService : IClientService
                 }
             }
 
-            // 3. Update durations on surviving services
+            // 3. Update durations ONLY on existing surviving services
             if (request.ServiceDurations != null)
             {
-                foreach (var sub in client.Subscriptions.Where(s => !removedServices.Contains(s.ServiceKey)))
+                var existingServicesToUpdate = currentServices.Intersect(newServices).ToList();
+                foreach (var sub in client.Subscriptions.Where(s => existingServicesToUpdate.Contains(s.ServiceKey)))
                 {
                     if (request.ServiceDurations.TryGetValue(sub.ServiceKey, out var months) && months > 0)
                     {
