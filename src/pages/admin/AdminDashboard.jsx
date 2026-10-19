@@ -119,9 +119,13 @@ const AdminDashboard = () => {
 
   const openEditModal = (client) => {
     setIsEdit(true);
+    const initialDurations = { ...(client.serviceDurations || {}) };
+    (client.services || []).forEach(s => {
+      if (!initialDurations[s]) initialDurations[s] = 1;
+    });
     setNewClient({ 
       ...client, 
-      serviceDurations: client.serviceDurations || {},
+      serviceDurations: initialDurations,
       services: client.services || [] 
     });
     setShowCreateModal(true);
@@ -132,7 +136,11 @@ const AdminDashboard = () => {
       const currentServices = prev.services || [];
       const isSelected = currentServices.includes(val);
       const newServices = isSelected ? currentServices.filter(s => s !== val) : [...currentServices, val];
-      return { ...prev, services: newServices };
+      const newDurations = { ...(prev.serviceDurations || {}) };
+      if (!isSelected && !newDurations[val]) {
+        newDurations[val] = 1;
+      }
+      return { ...prev, services: newServices, serviceDurations: newDurations };
     });
   };
 

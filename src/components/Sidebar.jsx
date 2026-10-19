@@ -10,10 +10,23 @@ const Sidebar = ({ isHovered, setIsHovered }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(true);
   const [isPersonalOpen, setIsPersonalOpen] = useState(true);
 
-  const syncUser = () => {
-    const updated = authService.getCurrentUser();
-    if (updated) {
-      setCurrentUser(updated);
+  const syncUser = async () => {
+    try {
+      const cached = authService.getCurrentUser();
+      if (cached) {
+        setCurrentUser(cached);
+      }
+      if (authService.isAuthenticated()) {
+        const freshUser = await authService.getMe();
+        if (freshUser) {
+          setCurrentUser(freshUser);
+        }
+      }
+    } catch {
+      const cached = authService.getCurrentUser();
+      if (cached) {
+        setCurrentUser(cached);
+      }
     }
   };
 
@@ -43,9 +56,29 @@ const Sidebar = ({ isHovered, setIsHovered }) => {
     navigate('/login');
   };
 
-  // Backwards compatibility: If a client has no services array, assume they are a restaurant client
-  const hasRestaurant = user?.services?.includes('restaurant_menu') || !user?.services || user.services.length === 0;
-  const hasPersonal = user?.services?.includes('personal_qr');
+  // Strictly check active services: if services array exists, respect it
+  const hasRestaurant = Array.isArray(user?.services)
+    ? user.services.includes('restaurant_menu')
+    : true;
+  const hasPersonal = Array.isArray(user?.services)
+    ? user.services.includes('personal_qr')
+    : false;
+
+  // Seamless auto-redirect if client's active service was revoked in real-time by admin
+  useEffect(() => {
+    if (!user || user.role === 'super_admin' || user.role === 'admin') return;
+
+    const path = window.location.pathname;
+    if (path.startsWith('/restaurant_menu_dashboard') && !hasRestaurant) {
+      if (hasPersonal) {
+        navigate('/personal_qr_dashboard');
+      }
+    } else if (path.startsWith('/personal_qr_dashboard') && !hasPersonal) {
+      if (hasRestaurant) {
+        navigate('/restaurant_menu_dashboard');
+      }
+    }
+  }, [hasRestaurant, hasPersonal, user, navigate]);
 
   return (
     <div 
