@@ -73,7 +73,9 @@ const AdminDashboard = () => {
       ]);
 
       const clientList = Array.isArray(clientsData) ? clientsData : [];
-      setClients([...clientList].reverse());
+      // Keep newest clients at the top so newly added clients appear above
+      clientList.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      setClients(clientList);
 
       if (statsData) {
         setStats(statsData);
