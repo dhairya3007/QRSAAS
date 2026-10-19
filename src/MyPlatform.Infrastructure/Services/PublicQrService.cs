@@ -325,18 +325,18 @@ public class PublicQrService : IPublicQrService
     {
         if (!string.IsNullOrWhiteSpace(serviceKey))
         {
+            // Return the isolated per-service count.
+            // Do NOT fall back to the shared Client.ScanCount — that breaks isolation.
             var subScan = await _context.ClientServiceSubscriptions
                 .AsNoTracking()
                 .Where(s => s.ClientId == clientId && s.ServiceKey == serviceKey)
                 .Select(s => (int?)s.ScanCount)
                 .FirstOrDefaultAsync();
 
-            if (subScan.HasValue)
-            {
-                return subScan.Value;
-            }
+            return subScan ?? 0;
         }
 
+        // No serviceKey — return global total (used by Admin dashboard)
         return await _context.Clients
             .AsNoTracking()
             .Where(c => c.Id == clientId)
