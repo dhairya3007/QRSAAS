@@ -268,7 +268,18 @@ public class ClientService : IClientService
             var currentServices = client.Subscriptions.Select(s => s.ServiceKey).ToList();
             var newServices = request.Services;
 
-            // Add new services
+            // 1. Remove deselected services
+            var removedServices = currentServices.Except(newServices).ToList();
+            foreach (var sKey in removedServices)
+            {
+                var subToRemove = client.Subscriptions.FirstOrDefault(s => s.ServiceKey == sKey);
+                if (subToRemove != null)
+                {
+                    _context.ClientServiceSubscriptions.Remove(subToRemove);
+                }
+            }
+
+            // 2. Add new services
             var durations = request.ServiceDurations ?? new Dictionary<string, int>();
             foreach (var sKey in newServices.Except(currentServices))
             {
@@ -277,43 +288,59 @@ public class ClientService : IClientService
                 {
                     ServiceKey = sKey,
                     DurationMonths = months,
-                    ExpireAtUtc = client.CreatedAtUtc.AddMonths(months),
+                    ExpireAtUtc = DateTime.UtcNow.AddMonths(months),
                     IsSuspended = false,
-                    IsSetupCompleted = false
+                    IsSetupCompleted = false,
+                    ScanCount = 0
                 });
 
-                if (sKey == ServiceType.PersonalQr && client.PersonalProfile == null)
+                if (sKey == ServiceType.PersonalQr)
                 {
-                    var pToken = "card-" + Guid.NewGuid().ToString("N")[..8];
-                    client.PersonalQrToken = pToken;
-                    client.PersonalProfile = new PersonalQrProfile
+                    if (string.IsNullOrWhiteSpace(client.PersonalQrToken))
                     {
-                        QrToken = pToken,
-                        FirstName = client.Name,
-                        Theme = "minimal"
-                    };
+                        var pToken = "card-" + Guid.NewGuid().ToString("N")[..8];
+                        client.PersonalQrToken = pToken;
+                    }
+
+                    if (client.PersonalProfile == null)
+                    {
+                        client.PersonalProfile = new PersonalQrProfile
+                        {
+                            QrToken = client.PersonalQrToken!,
+                            FirstName = client.Name,
+                            Theme = "minimal"
+                        };
+                    }
                 }
 
-                if (sKey == ServiceType.RestaurantMenu && client.BusinessDetails == null)
+                if (sKey == ServiceType.RestaurantMenu)
                 {
-                    client.BusinessDetails = new RestaurantBusinessDetails
+                    if (string.IsNullOrWhiteSpace(client.QrToken))
                     {
-                        Name = client.Name,
-                        Theme = "modern",
-                        ThemeUpdated = false
-                    };
+                        client.QrToken = "qr-" + Guid.NewGuid().ToString("N")[..10];
+                    }
+
+                    if (client.BusinessDetails == null)
+                    {
+                        client.BusinessDetails = new RestaurantBusinessDetails
+                        {
+                            Name = client.Name,
+                            Theme = "modern",
+                            ThemeUpdated = false
+                        };
+                    }
                 }
             }
 
-            // Update durations on existing services
+            // 3. Update durations on surviving services
             if (request.ServiceDurations != null)
             {
-                foreach (var sub in client.Subscriptions)
+                foreach (var sub in client.Subscriptions.Where(s => !removedServices.Contains(s.ServiceKey)))
                 {
-                    if (request.ServiceDurations.TryGetValue(sub.ServiceKey, out var months))
+                    if (request.ServiceDurations.TryGetValue(sub.ServiceKey, out var months) && months > 0)
                     {
                         sub.DurationMonths = months;
-                        sub.ExpireAtUtc = client.CreatedAtUtc.AddMonths(months);
+                        sub.ExpireAtUtc = DateTime.UtcNow.AddMonths(months);
                     }
                 }
             }
