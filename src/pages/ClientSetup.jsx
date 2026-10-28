@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
+import SessionConflictModal, { getDashboardPathForUser } from '../components/SessionConflictModal';
 
 const ClientSetup = () => {
   const { token } = useParams();
   const navigate = useNavigate();
 
+  const [conflictingUser, setConflictingUser] = useState(() => {
+    return authService.isAuthenticated() ? authService.getCurrentUser() : null;
+  });
   const [setupInfo, setSetupInfo] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,6 +18,11 @@ const ClientSetup = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (conflictingUser) {
+      setLoading(false);
+      return;
+    }
+
     const verifyToken = async () => {
       try {
         setLoading(true);
@@ -38,7 +47,7 @@ const ClientSetup = () => {
     if (token) {
       verifyToken();
     }
-  }, [token]);
+  }, [token, conflictingUser]);
 
   const handleSetup = async (e) => {
     e.preventDefault();
@@ -67,6 +76,23 @@ const ClientSetup = () => {
       setSaving(false);
     }
   };
+
+  if (conflictingUser) {
+    return (
+      <div className="d-flex align-items-center justify-content-center flex-grow-1" style={{ background: '#f3f4f6', minHeight: '100vh' }}>
+        <SessionConflictModal
+          isOpen={true}
+          currentUser={conflictingUser}
+          targetAction="setup"
+          onStay={() => navigate(getDashboardPathForUser(conflictingUser))}
+          onProceed={() => {
+            authService.logout();
+            setConflictingUser(null);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (

@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
+import SessionConflictModal, { getDashboardPathForUser } from '../components/SessionConflictModal';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [conflictingUser, setConflictingUser] = useState(() => {
+    return authService.isAuthenticated() ? authService.getCurrentUser() : null;
+  });
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
@@ -35,6 +39,16 @@ const Login = () => {
 
   return (
     <div className="d-flex align-items-center justify-content-center flex-grow-1" style={{ background: '#f3f4f6', minHeight: '100vh' }}>
+      <SessionConflictModal
+        isOpen={Boolean(conflictingUser)}
+        currentUser={conflictingUser}
+        targetAction="login"
+        onStay={() => navigate(getDashboardPathForUser(conflictingUser))}
+        onProceed={() => {
+          authService.logout();
+          setConflictingUser(null);
+        }}
+      />
       <div className="card shadow-sm p-5 border-0 rounded-4" style={{ width: '100%', maxWidth: '420px' }}>
         <div className="text-center mb-4">
           <h2 className="fw-bold text-primary">Login</h2>

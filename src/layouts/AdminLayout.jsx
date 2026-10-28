@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import AdminSidebar from '../components/AdminSidebar';
 import { authService } from '../services/authService';
+import SessionConflictModal, { getDashboardPathForUser } from '../components/SessionConflictModal';
 
 const AdminLayout = () => {
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const [conflictingUser, setConflictingUser] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,14 +27,27 @@ const AdminLayout = () => {
     if (!user || !authService.isAuthenticated()) {
       navigate('/login');
     } else if (!isAdmin) {
-      // Redirect clients away from admin area
-      if (user.services && user.services.includes('personal_qr') && !user.services.includes('restaurant_menu')) {
-        navigate('/personal_qr_dashboard');
-      } else {
-        navigate('/restaurant_menu_dashboard');
-      }
+      // User is logged in as a Client and tried to access /admin
+      setConflictingUser(user);
     }
   }, [navigate]);
+
+  if (conflictingUser) {
+    return (
+      <div className="d-flex align-items-center justify-content-center min-vh-100" style={{ background: '#f8f9fc' }}>
+        <SessionConflictModal
+          isOpen={true}
+          currentUser={conflictingUser}
+          targetAction="admin"
+          onStay={() => navigate(getDashboardPathForUser(conflictingUser))}
+          onProceed={() => {
+            authService.logout();
+            navigate('/login');
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="d-flex" style={{ minHeight: '100vh', background: '#f8f9fc' }}>
