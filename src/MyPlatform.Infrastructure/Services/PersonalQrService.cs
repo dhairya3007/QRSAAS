@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MyPlatform.Application.DTOs.PersonalQr;
 using MyPlatform.Application.Interfaces;
 using MyPlatform.Domain.Entities;
+using MyPlatform.Domain.Enums;
 using MyPlatform.Infrastructure.Persistence;
 using System.Text.Json;
 
@@ -35,6 +36,22 @@ public class PersonalQrService : IPersonalQrService
 
         if (profile == null)
         {
+            // Verify client exists and has a Personal QR subscription before creating a profile
+            var client = await _context.Clients
+                .Include(c => c.Subscriptions)
+                .FirstOrDefaultAsync(c => c.Id == clientId);
+
+            if (client == null)
+            {
+                throw new KeyNotFoundException("Client not found.");
+            }
+
+            var hasSubscription = client.Subscriptions.Any(s => s.ServiceKey == ServiceType.PersonalQr);
+            if (!hasSubscription)
+            {
+                throw new InvalidOperationException("Client does not have an active Personal QR service subscription.");
+            }
+
             var pToken = "card-" + Guid.NewGuid().ToString("N")[..8];
             profile = new PersonalQrProfile
             {
@@ -45,8 +62,7 @@ public class PersonalQrService : IPersonalQrService
             _context.PersonalQrProfiles.Add(profile);
 
             // Also update client.PersonalQrToken
-            var client = await _context.Clients.FindAsync(clientId);
-            if (client != null && string.IsNullOrEmpty(client.PersonalQrToken))
+            if (string.IsNullOrEmpty(client.PersonalQrToken))
             {
                 client.PersonalQrToken = pToken;
             }

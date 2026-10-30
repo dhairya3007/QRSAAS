@@ -89,14 +89,30 @@ public class AuthService : IAuthService
 
     public async Task<SetupInfoDto> GetSetupInfoAsync(string token)
     {
-        var client = await _dbContext.Clients
-            .Include(c => c.Subscriptions)
-            .Include(c => c.User)
-            .FirstOrDefaultAsync(c => c.QrToken == token || c.PersonalQrToken == token);
+        Client? client = null;
+
+        // 1. Validate as signed setup token to pinpoint the exact client
+        var clientId = _jwtTokenService.ValidateSetupToken(token);
+        if (clientId.HasValue)
+        {
+            client = await _dbContext.Clients
+                .Include(c => c.Subscriptions)
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.Id == clientId.Value);
+        }
+
+        // 2. Backwards-compatible fallback (QR token)
+        if (client == null)
+        {
+            client = await _dbContext.Clients
+                .Include(c => c.Subscriptions)
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.QrToken == token || c.PersonalQrToken == token);
+        }
 
         if (client == null)
         {
-            throw new KeyNotFoundException("Invalid setup link. Please contact your administrator.");
+            throw new KeyNotFoundException("Invalid or expired setup link. Please contact your administrator.");
         }
 
         var alreadySetup = client.User != null && !string.IsNullOrEmpty(client.User.PasswordHash);
@@ -113,21 +129,45 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> CompleteSetupAsync(CompleteSetupRequestDto request)
     {
-        var client = await _dbContext.Clients
-            .Include(c => c.Subscriptions)
-            .Include(c => c.User)
-            .Include(c => c.BusinessDetails)
-            .FirstOrDefaultAsync(c => c.QrToken == request.Token || c.PersonalQrToken == request.Token);
+        Client? client = null;
+
+        // 1. Validate signed setup token to pinpoint the exact client
+        var clientId = _jwtTokenService.ValidateSetupToken(request.Token);
+        if (clientId.HasValue)
+        {
+            client = await _dbContext.Clients
+                .Include(c => c.Subscriptions)
+                .Include(c => c.User)
+                .Include(c => c.BusinessDetails)
+                .FirstOrDefaultAsync(c => c.Id == clientId.Value);
+        }
+
+        // 2. Backwards-compatible fallback
+        if (client == null)
+        {
+            client = await _dbContext.Clients
+                .Include(c => c.Subscriptions)
+                .Include(c => c.User)
+                .Include(c => c.BusinessDetails)
+                .FirstOrDefaultAsync(c => c.QrToken == request.Token || c.PersonalQrToken == request.Token);
+        }
 
         if (client == null)
         {
-            throw new KeyNotFoundException("Invalid setup link.");
+            throw new KeyNotFoundException("Invalid or expired setup link.");
+        }
+
+        // Validate email uniqueness across other client accounts
+        var existingUser = await _userManager.FindByEmailAsync(request.Email);
+        if (existingUser != null && existingUser.ClientId != client.Id)
+        {
+            throw new InvalidOperationException("This email address is already in use by another account. Please use a different email address.");
         }
 
         // Update Client's email
         client.Email = request.Email;
 
-        ApplicationUser? user = client.User;
+        ApplicationUser? user = client.User ?? existingUser;
 
         if (user == null)
         {
@@ -172,6 +212,12 @@ public class AuthService : IAuthService
             }
 
             await _userManager.UpdateAsync(user);
+        }
+
+        // Automatically mark all client subscriptions as setup completed
+        foreach (var sub in client.Subscriptions)
+        {
+            sub.IsSetupCompleted = true;
         }
 
         await _dbContext.SaveChangesAsync();

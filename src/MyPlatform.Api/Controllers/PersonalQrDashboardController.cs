@@ -4,6 +4,7 @@ using MyPlatform.Api.Extensions;
 using MyPlatform.Application.DTOs.PersonalQr;
 using MyPlatform.Application.DTOs.RestaurantMenu;
 using MyPlatform.Application.Interfaces;
+using MyPlatform.Domain.Enums;
 
 namespace MyPlatform.Api.Controllers;
 
@@ -27,6 +28,9 @@ public class PersonalQrDashboardController : ControllerBase
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
+        var authCheck = await ValidatePersonalQrClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
+
         var profile = await _personalQrService.GetPersonalQrProfileAsync(targetClientId.Value);
         return Ok(profile);
     }
@@ -36,6 +40,9 @@ public class PersonalQrDashboardController : ControllerBase
     {
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
+
+        var authCheck = await ValidatePersonalQrClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
 
         try
         {
@@ -54,6 +61,9 @@ public class PersonalQrDashboardController : ControllerBase
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
+        var authCheck = await ValidatePersonalQrClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
+
         var success = await _personalQrService.UpdatePersonalQrThemeAsync(targetClientId.Value, dto.Theme);
         if (!success) return NotFound(new { message = "Profile not found." });
         return Ok(new { success = true, theme = dto.Theme });
@@ -65,6 +75,9 @@ public class PersonalQrDashboardController : ControllerBase
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
+        var authCheck = await ValidatePersonalQrClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
+
         var isActive = await _clientService.GetClientStatusAsync(targetClientId.Value);
         return Ok(new { isActive });
     }
@@ -75,8 +88,28 @@ public class PersonalQrDashboardController : ControllerBase
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
+        var authCheck = await ValidatePersonalQrClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
+
         var isActive = await _clientService.ToggleClientStatusAsync(targetClientId.Value, isClientSelfToggle: !User.IsAdmin());
         return Ok(new { isActive });
+    }
+
+    private async Task<IActionResult?> ValidatePersonalQrClientAsync(Guid clientId)
+    {
+        try
+        {
+            var client = await _clientService.GetClientByIdAsync(clientId);
+            if (!client.Services.Contains(ServiceType.PersonalQr))
+            {
+                return Unauthorized(new { message = "Your personal QR service has been removed. Please log in again." });
+            }
+            return null;
+        }
+        catch (KeyNotFoundException)
+        {
+            return Unauthorized(new { message = "Your client account has been deleted. Please log in again." });
+        }
     }
 
     private Guid? GetEffectiveClientId(Guid? requestedClientId)

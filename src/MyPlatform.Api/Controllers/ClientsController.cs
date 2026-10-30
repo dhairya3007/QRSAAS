@@ -125,6 +125,7 @@ public class ClientsController : ControllerBase
         return Ok(new { success = true });
     }
 
+    [Authorize(Roles = UserRole.Admin)]
     [HttpPatch("{id:guid}/setup-complete")]
     public async Task<IActionResult> MarkSetupComplete(Guid id, [FromQuery] string? service = null)
     {

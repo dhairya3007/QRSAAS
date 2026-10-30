@@ -20,6 +20,7 @@ public class ClientDto
     public string ExpireAt { get; set; } = string.Empty;
     public string QrToken { get; set; } = string.Empty;
     public string? PersonalQrToken { get; set; }
+    public string? SetupToken { get; set; }
     public string Theme { get; set; } = "modern";
     public bool ThemeUpdated { get; set; }
     public bool IsActive { get; set; } = true;

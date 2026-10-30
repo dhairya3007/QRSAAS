@@ -13,17 +13,20 @@ public class ClientService : IClientService
 {
     private readonly ApplicationDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IJwtTokenService _jwtTokenService;
 
-    public ClientService(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    public ClientService(ApplicationDbContext context, UserManager<ApplicationUser> userManager, IJwtTokenService jwtTokenService)
     {
         _context = context;
         _userManager = userManager;
+        _jwtTokenService = jwtTokenService;
     }
 
     public async Task<List<ClientDto>> GetAllClientsAsync()
     {
         var rawClients = await _context.Clients
             .AsNoTracking()
+            .AsSplitQuery()
             .OrderByDescending(c => c.CreatedAtUtc)
             .Select(c => new
             {
@@ -115,6 +118,7 @@ public class ClientService : IClientService
                 ExpireAt = maxExpiry,
                 QrToken = c.QrToken,
                 PersonalQrToken = c.PersonalQrToken,
+                SetupToken = completedSetups.Count > 0 ? null : _jwtTokenService.GenerateSetupToken(c.Id, c.Name),
                 Theme = c.BusinessDetails?.Theme ?? "modern",
                 ThemeUpdated = c.BusinessDetails?.ThemeUpdated ?? false,
                 IsActive = c.IsActive,
@@ -212,28 +216,47 @@ public class ClientService : IClientService
             };
         }
 
-        _context.Clients.Add(client);
-        await _context.SaveChangesAsync();
-
-        // If email and password provided, create ApplicationUser account
-        if (!string.IsNullOrWhiteSpace(request.Email) && !string.IsNullOrWhiteSpace(request.Password))
+        // --- Transaction: save both Client and Identity user together ---
+        // If Identity user creation fails, the client row is rolled back automatically.
+        // Without this, a failed user creation would leave an orphaned unloggable client in the DB.
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        try
         {
-            var user = new ApplicationUser
-            {
-                UserName = request.Email,
-                Email = request.Email,
-                FullName = request.Name,
-                UserType = UserRole.Client,
-                ClientId = client.Id,
-                IsActive = true,
-                EmailConfirmed = true
-            };
+            _context.Clients.Add(client);
+            await _context.SaveChangesAsync();
 
-            var userResult = await _userManager.CreateAsync(user, request.Password);
-            if (userResult.Succeeded)
+            // If email and password provided, create ApplicationUser account
+            if (!string.IsNullOrWhiteSpace(request.Email) && !string.IsNullOrWhiteSpace(request.Password))
             {
+                var user = new ApplicationUser
+                {
+                    UserName = request.Email,
+                    Email = request.Email,
+                    FullName = request.Name,
+                    UserType = UserRole.Client,
+                    ClientId = client.Id,
+                    IsActive = true,
+                    EmailConfirmed = true
+                };
+
+                var userResult = await _userManager.CreateAsync(user, request.Password);
+                if (!userResult.Succeeded)
+                {
+                    // User creation failed — roll back the client too so nothing is orphaned
+                    await transaction.RollbackAsync();
+                    var errors = string.Join(", ", userResult.Errors.Select(e => e.Description));
+                    throw new InvalidOperationException($"Failed to create login account: {errors}");
+                }
+
                 await _userManager.AddToRoleAsync(user, UserRole.Client);
             }
+
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw; // re-throw so the controller returns a proper error response
         }
 
         return await GetClientByIdAsync(client.Id);
@@ -262,25 +285,14 @@ public class ClientService : IClientService
             client.Email = request.Email;
         }
 
-        // Update services if passed
+        // Update services if passed — only adding new services is permitted here.
+        // Existing services can ONLY be removed from their individual service dashboard.
         if (request.Services != null)
         {
             var currentServices = client.Subscriptions.Select(s => s.ServiceKey).ToList();
             var newServices = request.Services;
 
-            // 1. Remove deselected services
-            var removedServices = currentServices.Except(newServices).ToList();
-            foreach (var sKey in removedServices)
-            {
-                var subToRemove = client.Subscriptions.FirstOrDefault(s => s.ServiceKey == sKey);
-                if (subToRemove != null)
-                {
-                    client.Subscriptions.Remove(subToRemove);
-                    _context.ClientServiceSubscriptions.Remove(subToRemove);
-                }
-            }
-
-            // 2. Add new services
+            // 1. Add new services
             var durations = request.ServiceDurations ?? new Dictionary<string, int>();
             foreach (var sKey in newServices.Except(currentServices))
             {
@@ -307,12 +319,15 @@ public class ClientService : IClientService
 
                     if (client.PersonalProfile == null)
                     {
-                        client.PersonalProfile = new PersonalQrProfile
+                        var pProfile = new PersonalQrProfile
                         {
+                            ClientId = client.Id,
                             QrToken = client.PersonalQrToken!,
                             FirstName = client.Name,
                             Theme = "minimal"
                         };
+                        client.PersonalProfile = pProfile;
+                        _context.PersonalQrProfiles.Add(pProfile);
                     }
                 }
 
@@ -325,12 +340,15 @@ public class ClientService : IClientService
 
                     if (client.BusinessDetails == null)
                     {
-                        client.BusinessDetails = new RestaurantBusinessDetails
+                        var bDetails = new RestaurantBusinessDetails
                         {
+                            ClientId = client.Id,
                             Name = client.Name,
                             Theme = "modern",
                             ThemeUpdated = false
                         };
+                        client.BusinessDetails = bDetails;
+                        _context.RestaurantBusinessDetails.Add(bDetails);
                     }
                 }
             }
@@ -357,25 +375,58 @@ public class ClientService : IClientService
             if (user != null)
             {
                 var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-                await _userManager.ResetPasswordAsync(user, token, request.Password);
+                var resetResult = await _userManager.ResetPasswordAsync(user, token, request.Password);
+                if (!resetResult.Succeeded)
+                {
+                    var errors = string.Join(", ", resetResult.Errors.Select(e => e.Description));
+                    throw new InvalidOperationException($"Failed to update password: {errors}");
+                }
             }
             else if (!string.IsNullOrWhiteSpace(client.Email))
             {
-                var newUser = new ApplicationUser
+                var existingUser = await _userManager.FindByEmailAsync(client.Email);
+                if (existingUser != null)
                 {
-                    UserName = client.Email,
-                    Email = client.Email,
-                    FullName = client.Name,
-                    UserType = UserRole.Client,
-                    ClientId = client.Id,
-                    IsActive = true
-                };
-                await _userManager.CreateAsync(newUser, request.Password);
-                await _userManager.AddToRoleAsync(newUser, UserRole.Client);
+                    existingUser.ClientId = client.Id;
+                    var token = await _userManager.GeneratePasswordResetTokenAsync(existingUser);
+                    var resetResult = await _userManager.ResetPasswordAsync(existingUser, token, request.Password);
+                    if (!resetResult.Succeeded)
+                    {
+                        var errors = string.Join(", ", resetResult.Errors.Select(e => e.Description));
+                        throw new InvalidOperationException($"Failed to update password: {errors}");
+                    }
+                }
+                else
+                {
+                    var newUser = new ApplicationUser
+                    {
+                        UserName = client.Email,
+                        Email = client.Email,
+                        FullName = client.Name,
+                        UserType = UserRole.Client,
+                        ClientId = client.Id,
+                        IsActive = true,
+                        EmailConfirmed = true
+                    };
+                    var createResult = await _userManager.CreateAsync(newUser, request.Password);
+                    if (!createResult.Succeeded)
+                    {
+                        var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
+                        throw new InvalidOperationException($"Failed to create user account: {errors}");
+                    }
+                    await _userManager.AddToRoleAsync(newUser, UserRole.Client);
+                }
             }
         }
 
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("This client or one of its services was modified or deleted by another action. Please refresh the page.");
+        }
         return await GetClientByIdAsync(client.Id);
     }
 
@@ -394,26 +445,58 @@ public class ClientService : IClientService
 
         if (client == null) return false;
 
-        // Delete associated user
+        // 1. Delete associated identity user
         var user = await _userManager.Users.FirstOrDefaultAsync(u => u.ClientId == client.Id);
         if (user != null)
         {
             await _userManager.DeleteAsync(user);
         }
 
-        // Explicitly remove related sets to avoid restrict/cascade issues
-        _context.Dishes.RemoveRange(client.Dishes);
-        _context.Categories.RemoveRange(client.Categories);
-        _context.DishTypes.RemoveRange(client.DishTypes);
-        if (client.BusinessDetails != null) _context.RestaurantBusinessDetails.Remove(client.BusinessDetails);
+        // 2. Strict deletion order: Delete dishes FIRST so foreign keys to Categories/DishTypes are released
+        if (client.Dishes != null && client.Dishes.Any())
+        {
+            _context.Dishes.RemoveRange(client.Dishes);
+        }
+
+        // 3. Delete categories & dish types safely after dishes are cleared
+        if (client.Categories != null && client.Categories.Any())
+        {
+            _context.Categories.RemoveRange(client.Categories);
+        }
+
+        if (client.DishTypes != null && client.DishTypes.Any())
+        {
+            _context.DishTypes.RemoveRange(client.DishTypes);
+        }
+
+        // 4. Restaurant business details
+        if (client.BusinessDetails != null)
+        {
+            _context.RestaurantBusinessDetails.Remove(client.BusinessDetails);
+        }
+
+        // 5. Personal QR profile & CTA links
         if (client.PersonalProfile != null)
         {
-            _context.CallToActionLinks.RemoveRange(client.PersonalProfile.Links);
+            if (client.PersonalProfile.Links != null && client.PersonalProfile.Links.Any())
+            {
+                _context.CallToActionLinks.RemoveRange(client.PersonalProfile.Links);
+            }
             _context.PersonalQrProfiles.Remove(client.PersonalProfile);
         }
-        _context.Inquiries.RemoveRange(client.Inquiries);
-        _context.ClientServiceSubscriptions.RemoveRange(client.Subscriptions);
 
+        // 6. Inquiries and Subscriptions
+        if (client.Inquiries != null && client.Inquiries.Any())
+        {
+            _context.Inquiries.RemoveRange(client.Inquiries);
+        }
+
+        if (client.Subscriptions != null && client.Subscriptions.Any())
+        {
+            _context.ClientServiceSubscriptions.RemoveRange(client.Subscriptions);
+        }
+
+        // 7. Finally remove the client itself
         _context.Clients.Remove(client);
         await _context.SaveChangesAsync();
         return true;
@@ -477,7 +560,8 @@ public class ClientService : IClientService
         var sub = client.Subscriptions.FirstOrDefault(s => s.ServiceKey == serviceName);
         if (sub != null)
         {
-            _context.ClientServiceSubscriptions.Remove(sub);
+            client.Subscriptions.Remove(sub);                  // keep in-memory list accurate for count check below
+            _context.ClientServiceSubscriptions.Remove(sub);   // mark for deletion in DB
         }
 
         if (serviceName == ServiceType.RestaurantMenu)
@@ -498,7 +582,8 @@ public class ClientService : IClientService
         }
 
         // If no services remain, remove client
-        if (client.Subscriptions.Count <= 1) // Since sub is already marked for removal
+        // client.Subscriptions is now accurate (sub was removed above) — no stale count
+        if (!client.Subscriptions.Any())
         {
             var user = await _userManager.Users.FirstOrDefaultAsync(u => u.ClientId == client.Id);
             if (user != null) await _userManager.DeleteAsync(user);
@@ -554,7 +639,7 @@ public class ClientService : IClientService
         };
     }
 
-    private static ClientDto MapToClientDto(Client c)
+    private ClientDto MapToClientDto(Client c)
     {
         var services = c.Subscriptions.Select(s => s.ServiceKey).ToList();
         var durations = c.Subscriptions.ToDictionary(s => s.ServiceKey, s => s.DurationMonths);
@@ -605,6 +690,7 @@ public class ClientService : IClientService
             ExpireAt = maxExpiry,
             QrToken = c.QrToken,
             PersonalQrToken = c.PersonalQrToken,
+            SetupToken = completedSetups.Count > 0 ? null : _jwtTokenService.GenerateSetupToken(c.Id, c.Name),
             Theme = c.BusinessDetails?.Theme ?? "modern",
             ThemeUpdated = c.BusinessDetails?.ThemeUpdated ?? false,
             IsActive = c.IsActive,

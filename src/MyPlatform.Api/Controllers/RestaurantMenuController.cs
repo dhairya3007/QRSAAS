@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using MyPlatform.Api.Extensions;
 using MyPlatform.Application.DTOs.RestaurantMenu;
 using MyPlatform.Application.Interfaces;
+using MyPlatform.Domain.Enums;
 
 namespace MyPlatform.Api.Controllers;
 
@@ -26,6 +27,9 @@ public class RestaurantMenuController : ControllerBase
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
+        var authCheck = await ValidateRestaurantClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
+
         var details = await _menuService.GetBusinessDetailsAsync(targetClientId.Value);
         return Ok(details);
     }
@@ -35,6 +39,9 @@ public class RestaurantMenuController : ControllerBase
     {
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
+
+        var authCheck = await ValidateRestaurantClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
 
         var updated = await _menuService.SaveBusinessDetailsAsync(targetClientId.Value, dto);
         return Ok(updated);
@@ -46,6 +53,9 @@ public class RestaurantMenuController : ControllerBase
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
+        var authCheck = await ValidateRestaurantClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
+
         await _menuService.UpdateThemeAsync(targetClientId.Value, dto.Theme);
         return Ok(new { success = true, theme = dto.Theme });
     }
@@ -55,6 +65,9 @@ public class RestaurantMenuController : ControllerBase
     {
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
+
+        var authCheck = await ValidateRestaurantClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
 
         var isActive = await _clientService.GetClientStatusAsync(targetClientId.Value);
         return Ok(new { isActive });
@@ -66,8 +79,28 @@ public class RestaurantMenuController : ControllerBase
         var targetClientId = GetEffectiveClientId(clientId);
         if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
 
+        var authCheck = await ValidateRestaurantClientAsync(targetClientId.Value);
+        if (authCheck != null) return authCheck;
+
         var isActive = await _clientService.ToggleClientStatusAsync(targetClientId.Value, isClientSelfToggle: !User.IsAdmin());
         return Ok(new { isActive });
+    }
+
+    private async Task<IActionResult?> ValidateRestaurantClientAsync(Guid clientId)
+    {
+        try
+        {
+            var client = await _clientService.GetClientByIdAsync(clientId);
+            if (!client.Services.Contains(ServiceType.RestaurantMenu))
+            {
+                return Unauthorized(new { message = "Your restaurant menu service has been removed. Please log in again." });
+            }
+            return null;
+        }
+        catch (KeyNotFoundException)
+        {
+            return Unauthorized(new { message = "Your client account has been deleted. Please log in again." });
+        }
     }
 
     private Guid? GetEffectiveClientId(Guid? requestedClientId)

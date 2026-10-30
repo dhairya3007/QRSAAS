@@ -22,20 +22,37 @@ public class PublicQrService : IPublicQrService
 
     public async Task<TokenIdentifyResponseDto> IdentifyTokenAsync(string token)
     {
-        // 1. Check Personal QR tokens (on profile or client)
-        var isPersonalQr = await _context.PersonalQrProfiles.AnyAsync(p => p.QrToken == token)
-            || await _context.Clients.AnyAsync(c => c.PersonalQrToken == token);
+        // Consolidated into 1 single database query for fast QR scan routing
+        var matched = await _context.Clients
+            .AsNoTracking()
+            .Where(c => c.QrToken == token || c.PersonalQrToken == token || (c.PersonalProfile != null && c.PersonalProfile.QrToken == token))
+            .Select(c => new
+            {
+                IsRestaurant = c.QrToken == token,
+                IsPersonal = c.PersonalQrToken == token || (c.PersonalProfile != null && c.PersonalProfile.QrToken == token)
+            })
+            .FirstOrDefaultAsync();
 
-        if (isPersonalQr)
+        if (matched != null)
         {
-            return new TokenIdentifyResponseDto { Type = ServiceType.PersonalQr };
+            if (matched.IsPersonal)
+            {
+                return new TokenIdentifyResponseDto { Type = ServiceType.PersonalQr };
+            }
+            if (matched.IsRestaurant)
+            {
+                return new TokenIdentifyResponseDto { Type = ServiceType.RestaurantMenu };
+            }
         }
 
-        // 2. Check Restaurant Menu tokens
-        var isRestaurant = await _context.Clients.AnyAsync(c => c.QrToken == token);
-        if (isRestaurant)
+        // Fallback: check PersonalQrProfiles table directly
+        var profileExists = await _context.PersonalQrProfiles
+            .AsNoTracking()
+            .AnyAsync(p => p.QrToken == token);
+
+        if (profileExists)
         {
-            return new TokenIdentifyResponseDto { Type = ServiceType.RestaurantMenu };
+            return new TokenIdentifyResponseDto { Type = ServiceType.PersonalQr };
         }
 
         throw new KeyNotFoundException("Invalid Token");
@@ -144,7 +161,19 @@ public class PublicQrService : IPublicQrService
         }
 
         var client = profile.Client;
-        var isSuspended = client.Subscriptions.Any(s => s.ServiceKey == ServiceType.PersonalQr && s.IsSuspended);
+        if (client == null)
+        {
+            client = await _context.Clients
+                .Include(c => c.Subscriptions)
+                .FirstOrDefaultAsync(c => c.Id == profile.ClientId);
+        }
+
+        if (client == null)
+        {
+            throw new KeyNotFoundException("Profile has no associated client.");
+        }
+
+        var isSuspended = client.Subscriptions != null && client.Subscriptions.Any(s => s.ServiceKey == ServiceType.PersonalQr && s.IsSuspended);
         if (isSuspended)
         {
             throw new InvalidOperationException("Service Suspended by Admin");
@@ -286,8 +315,18 @@ public class PublicQrService : IPublicQrService
 
     public async Task<bool> IncrementLinkClickAsync(string token, Guid linkId)
     {
-        var profile = await _context.PersonalQrProfiles.FirstOrDefaultAsync(p => p.QrToken == token);
+        var profile = await _context.PersonalQrProfiles
+            .Include(p => p.Client)
+                .ThenInclude(c => c.Subscriptions)
+            .FirstOrDefaultAsync(p => p.QrToken == token);
+
         if (profile == null) return false;
+
+        var client = profile.Client;
+        if (client == null || !client.IsActive) return false;
+
+        var isSuspended = client.Subscriptions != null && client.Subscriptions.Any(s => s.ServiceKey == ServiceType.PersonalQr && s.IsSuspended);
+        if (isSuspended) return false;
 
         var link = await _context.CallToActionLinks
             .FirstOrDefaultAsync(l => l.Id == linkId && l.ProfileId == profile.Id);

@@ -283,7 +283,11 @@ public class RestaurantMenuService : IRestaurantMenuService
         {
             var categoryExists = await _context.Categories
                 .AnyAsync(c => c.Id == catId && c.ClientId == clientId);
-            if (categoryExists) dish.CategoryId = catId;
+            if (!categoryExists)
+            {
+                throw new ArgumentException("Selected category does not exist or does not belong to this client.");
+            }
+            dish.CategoryId = catId;
         }
 
         await _context.SaveChangesAsync();
