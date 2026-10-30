@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
+import syncService from '../services/syncService';
 import SessionConflictModal, { getDashboardPathForUser } from '../components/SessionConflictModal';
 
 const ClientSetup = () => {
@@ -62,6 +63,9 @@ const ClientSetup = () => {
         password,
       });
 
+      // Notify other tabs (like Admin Dashboard) to instantly update client status without refresh
+      syncService.notify('clients');
+
       // Redirect to appropriate dashboard based on assigned services
       if (user.services?.includes('restaurant_menu')) {
         navigate('/restaurant_menu_dashboard');
@@ -82,12 +86,14 @@ const ClientSetup = () => {
       <div className="d-flex align-items-center justify-content-center flex-grow-1" style={{ background: '#f3f4f6', minHeight: '100vh' }}>
         <SessionConflictModal
           isOpen={true}
-          currentUser={conflictingUser}
-          targetAction="setup"
-          onStay={() => navigate(getDashboardPathForUser(conflictingUser))}
-          onProceed={() => {
-            authService.logout();
-            setConflictingUser(null);
+          message="You already have an active account open in this browser. Please log out first or open this link in a private window."
+          onOk={() => {
+            window.close();
+            setTimeout(() => {
+              if (!window.closed) {
+                navigate(getDashboardPathForUser(conflictingUser));
+              }
+            }, 150);
           }}
         />
       </div>

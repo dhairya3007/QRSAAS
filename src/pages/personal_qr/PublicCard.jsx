@@ -35,7 +35,9 @@ const PublicCard = ({ token: propToken }) => {
   // Increment scan/view count exactly once when user visits this public card
   const hasScannedRef = useRef(false);
   useEffect(() => {
-    if (token && !hasScannedRef.current) {
+    const searchParams = new URLSearchParams(window.location.search);
+    const isPreview = Boolean(searchParams.get('previewTheme') || searchParams.get('preview'));
+    if (token && !hasScannedRef.current && !isPreview) {
       hasScannedRef.current = true;
       publicService.incrementPersonalCardScanCount(token);
     }

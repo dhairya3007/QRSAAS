@@ -8,13 +8,10 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [conflictingUser, setConflictingUser] = useState(() => {
-    return authService.isAuthenticated() ? authService.getCurrentUser() : null;
-  });
+  const [conflictingUser, setConflictingUser] = useState(null);
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const executeLogin = async () => {
     setLoading(true);
     setError('');
     try {
@@ -37,17 +34,22 @@ const Login = () => {
     }
   };
 
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    // If an account is already logged in in this browser, ask user to log out first
+    if (authService.isAuthenticated()) {
+      setConflictingUser(authService.getCurrentUser() || { email: 'Active User' });
+      return;
+    }
+    await executeLogin();
+  };
+
   return (
     <div className="d-flex align-items-center justify-content-center flex-grow-1" style={{ background: '#f3f4f6', minHeight: '100vh' }}>
       <SessionConflictModal
         isOpen={Boolean(conflictingUser)}
-        currentUser={conflictingUser}
-        targetAction="login"
-        onStay={() => navigate(getDashboardPathForUser(conflictingUser))}
-        onProceed={() => {
-          authService.logout();
-          setConflictingUser(null);
-        }}
+        message="An account is already logged in in this browser. Please log out from the existing dashboard first before logging into another account."
+        onOk={() => setConflictingUser(null)}
       />
       <div className="card shadow-sm p-5 border-0 rounded-4" style={{ width: '100%', maxWidth: '420px' }}>
         <div className="text-center mb-4">

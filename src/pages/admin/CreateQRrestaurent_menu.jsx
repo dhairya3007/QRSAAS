@@ -5,6 +5,22 @@ import { adminService } from '../../services/adminService';
 import syncService from '../../services/syncService';
 import { AVAILABLE_SERVICES } from './Services';
 
+const getRenewalStatus = (expiryDateStr) => {
+  if (!expiryDateStr) return { formattedDate: 'N/A', daysLeft: null, isExpiringSoon: false, isExpired: false };
+  const expDate = new Date(expiryDateStr);
+  if (isNaN(expDate.getTime())) return { formattedDate: 'N/A', daysLeft: null, isExpiringSoon: false, isExpired: false };
+
+  const formattedDate = expDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const today = new Date();
+  const diffTime = expDate.getTime() - today.getTime();
+  const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  const isExpired = daysLeft <= 0;
+  const isExpiringSoon = daysLeft <= 4;
+
+  return { formattedDate, daysLeft, isExpiringSoon, isExpired };
+};
+
 const CreateQR = () => {
   const [showModal, setShowModal] = useState(false);
   const [clients, setClients] = useState([]);
@@ -82,12 +98,12 @@ const CreateQR = () => {
   };
 
   const handleDeleteClient = async (id) => {
-    if (window.confirm("Are you sure you want to delete this client?")) {
+    if (window.confirm("Are you sure you want to remove the Restaurant Menu service from this client?")) {
       try {
-        await adminService.deleteClient(id);
+        await adminService.removeService(id, 'restaurant_menu');
         await fetchClients();
       } catch (e) {
-        alert('Failed to delete client: ' + (e.message || 'Server error'));
+        alert('Failed to remove service: ' + (e.message || 'Server error'));
       }
     }
   };
@@ -136,15 +152,21 @@ const CreateQR = () => {
 
   const openModalForEdit = (client) => {
     setIsEdit(true);
+    const clientServices = [...(client.services || [])];
     setNewClient({
       ...client,
       serviceDurations: client.serviceDurations || {},
-      services: client.services || []
+      services: clientServices,
+      existingServices: clientServices
     });
     setShowModal(true);
   };
 
   const handleServiceToggle = (val) => {
+    if (isEdit && (newClient.existingServices || []).includes(val)) {
+      alert("Existing services cannot be removed from here. Please remove them from their individual service dashboard (Restaurant QR or Personal QR).");
+      return;
+    }
     setNewClient(prev => {
       const currentServices = prev.services || [];
       const isSelected = currentServices.includes(val);
@@ -196,6 +218,7 @@ const CreateQR = () => {
               <tr>
                 <th className="py-3 border-0 bg-light">S.No.</th>
                 <th className="py-3 border-0 bg-light">CUSTOMER INFO</th>
+                <th className="py-3 border-0 bg-light">RENEWAL DATE</th>
                 <th className="py-3 border-0 bg-light">CREDENTIALS</th>
                 <th className="py-3 border-0 bg-light">QR & LINKS</th>
                 <th className="py-3 border-0 bg-light">LOGIN</th>
@@ -211,10 +234,26 @@ const CreateQR = () => {
                   <td className="py-3 border-0">
                     <div className="fw-bold text-primary">{client.name}</div>
                     <div className="text-muted small">
-                      <strong>Created:</strong> {client.createdAt ? new Date(client.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'} <br />
-                      <strong>Expires:</strong> {client.serviceExpiries?.['restaurant_menu'] ? new Date(client.serviceExpiries['restaurant_menu']).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : (client.expireAt ? new Date(client.expireAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A')}
+                      <strong>Created:</strong> {client.createdAt ? new Date(client.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'}
                     </div>
                   </td>
+
+                  {(() => {
+                    const expiry = client.serviceExpiries?.['restaurant_menu'] || client.expireAt;
+                    const { formattedDate, daysLeft, isExpiringSoon, isExpired } = getRenewalStatus(expiry);
+                    return (
+                      <td className="py-3 border-0">
+                        <div className={isExpiringSoon ? "fw-bold text-danger" : "fw-medium text-dark"}>
+                          {formattedDate}
+                        </div>
+                        {daysLeft !== null && (
+                          <span className={`badge ${isExpiringSoon ? 'bg-danger text-white' : 'bg-light text-secondary border'} small mt-1`}>
+                            {isExpired ? 'Expired' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })()}
 
                   <td className="py-3 border-0 text-dark">
                     <button
@@ -313,6 +352,7 @@ const CreateQR = () => {
                     <div className="d-flex flex-column gap-3">
                       {AVAILABLE_SERVICES.map(srv => {
                         const isSelected = newClient.services?.includes(srv.id);
+                        const isExisting = isEdit && (newClient.existingServices || []).includes(srv.id);
                         return (
                           <div key={srv.id} className={`p-3 rounded-3 border ${isSelected ? 'border-primary bg-primary bg-opacity-10' : 'border-light bg-light'}`} style={{ transition: 'all 0.2s' }}>
                             <div className="d-flex align-items-center justify-content-between mb-2">
@@ -322,11 +362,13 @@ const CreateQR = () => {
                                   type="checkbox"
                                   id={`srv-${srv.id}`}
                                   checked={isSelected}
+                                  disabled={isExisting}
                                   onChange={() => handleServiceToggle(srv.id)}
-                                  style={{ width: '1.2rem', height: '1.2rem', cursor: 'pointer' }}
+                                  style={{ width: '1.2rem', height: '1.2rem', cursor: isExisting ? 'not-allowed' : 'pointer' }}
                                 />
-                                <label className="form-check-label fw-bold text-dark" htmlFor={`srv-${srv.id}`} style={{ cursor: 'pointer' }}>
+                                <label className="form-check-label fw-bold text-dark" htmlFor={`srv-${srv.id}`} style={{ cursor: isExisting ? 'not-allowed' : 'pointer' }}>
                                   {srv.name} <span className="text-primary small ms-1">(₹{srv.price}/mo)</span>
+                                  {isExisting && <span className="badge bg-secondary-subtle text-secondary small ms-2">Active (Remove from service page)</span>}
                                 </label>
                               </div>
                             </div>

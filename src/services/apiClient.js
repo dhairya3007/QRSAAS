@@ -8,24 +8,46 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'https://localhost:7180/api';
 
 class ApiClient {
   constructor() {
-    this.baseUrl = BASE_URL.replace(/\/+$/, '');
+    let url = (BASE_URL || '').split('#')[0].trim().replace(/\/+$/, '');
+    if (!url.endsWith('/api')) {
+      url += '/api';
+    }
+    this.baseUrl = url;
   }
 
   getAuthToken() {
-    return localStorage.getItem('auth_token');
+    const token = localStorage.getItem('auth_token');
+    if (!token) return null;
+
+    // Check if browser session is still active via session cookie
+    const isSessionActive = document.cookie
+      .split(';')
+      .some((item) => item.trim().startsWith('session_active='));
+
+    if (!isSessionActive) {
+      // Browser was closed and reopened: safely clear the old session
+      this.clearAuthToken();
+      return null;
+    }
+
+    return token;
   }
 
   setAuthToken(token) {
     if (token) {
       localStorage.setItem('auth_token', token);
+      // Session cookie without Expires/Max-Age: browser automatically clears it when completely closed
+      document.cookie = 'session_active=1; path=/; SameSite=Lax';
     } else {
-      localStorage.removeItem('auth_token');
+      this.clearAuthToken();
     }
   }
 
   clearAuthToken() {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('original_admin_user');
+    document.cookie = 'session_active=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
   }
 
   async request(endpoint, options = {}) {
@@ -88,7 +110,7 @@ class ApiClient {
       console.error(`[API Network Error] ${options.method || 'GET'} ${url}:`, networkError);
       throw new Error(
         'Unable to reach backend server. Please make sure the ASP.NET Core API is running at ' +
-          this.baseUrl
+        this.baseUrl
       );
     }
 
@@ -98,7 +120,7 @@ class ApiClient {
       if (window.location.pathname !== '/login' && !window.location.pathname.startsWith('/setup/')) {
         window.location.href = '/login';
       }
-      throw new Error('Your session has expired. Please log in again.');
+      throw new Error('Your session has expired. Please log in again. or contact to admin ');
     }
 
     // Parse response body

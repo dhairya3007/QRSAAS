@@ -1,8 +1,25 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { adminService } from '../../services/adminService';
 import syncService from '../../services/syncService';
 import { Plus, Edit, ExternalLink, QrCode, Download, Trash2, ToggleRight, ToggleLeft } from 'lucide-react';
+
+const getRenewalStatus = (expiryDateStr) => {
+  if (!expiryDateStr) return { formattedDate: 'N/A', daysLeft: null, isExpiringSoon: false, isExpired: false };
+  const expDate = new Date(expiryDateStr);
+  if (isNaN(expDate.getTime())) return { formattedDate: 'N/A', daysLeft: null, isExpiringSoon: false, isExpired: false };
+
+  const formattedDate = expDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const today = new Date();
+  const diffTime = expDate.getTime() - today.getTime();
+  const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  const isExpired = daysLeft <= 0;
+  const isExpiringSoon = daysLeft <= 4;
+
+  return { formattedDate, daysLeft, isExpiringSoon, isExpired };
+};
 
 const CreateQRPersonal = () => {
   const [clients, setClients] = useState([]);
@@ -146,6 +163,7 @@ const CreateQRPersonal = () => {
               <tr>
                 <th className="py-3 border-0 bg-light">S.No.</th>
                 <th className="py-3 border-0 bg-light">CUSTOMER NAME</th>
+                <th className="py-3 border-0 bg-light">RENEWAL DATE</th>
                 <th className="py-3 border-0 bg-light">SETUP LINK</th>
                 <th className="py-3 border-0 bg-light">QR & LINKS</th>
                 <th className="py-3 border-0 bg-light">LOGIN</th>
@@ -160,10 +178,26 @@ const CreateQRPersonal = () => {
                   <td className="py-3 border-0">
                     <div className="fw-bold text-primary">{item.name}</div>
                     <div className="text-muted small">
-                      <strong>Created:</strong> {item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'} <br />
-                      <strong>Expires:</strong> {item.serviceExpiries?.['personal_qr'] ? new Date(item.serviceExpiries['personal_qr']).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : (item.expireAt ? new Date(item.expireAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A')}
+                      <strong>Created:</strong> {item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'}
                     </div>
                   </td>
+
+                  {(() => {
+                    const expiry = item.serviceExpiries?.['personal_qr'] || item.expireAt;
+                    const { formattedDate, daysLeft, isExpiringSoon, isExpired } = getRenewalStatus(expiry);
+                    return (
+                      <td className="py-3 border-0">
+                        <div className={isExpiringSoon ? "fw-bold text-danger" : "fw-medium text-dark"}>
+                          {formattedDate}
+                        </div>
+                        {daysLeft !== null && (
+                          <span className={`badge ${isExpiringSoon ? 'bg-danger text-white' : 'bg-light text-secondary border'} small mt-1`}>
+                            {isExpired ? 'Expired' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })()}
                   <td className="py-3 border-0 text-dark">
                     <button
                       className={`btn btn-sm border-0 fw-bold px-3 py-2 rounded-pill ${item.email ? 'bg-light text-muted' : 'text-primary bg-primary bg-opacity-10'}`}

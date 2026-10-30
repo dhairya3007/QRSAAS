@@ -122,18 +122,24 @@ const AdminDashboard = () => {
   const openEditModal = (client) => {
     setIsEdit(true);
     const initialDurations = { ...(client.serviceDurations || {}) };
-    (client.services || []).forEach(s => {
+    const clientServices = [...(client.services || [])];
+    clientServices.forEach(s => {
       if (!initialDurations[s]) initialDurations[s] = 1;
     });
     setNewClient({ 
       ...client, 
       serviceDurations: initialDurations,
-      services: client.services || [] 
+      services: clientServices,
+      existingServices: clientServices
     });
     setShowCreateModal(true);
   };
 
   const handleServiceToggle = (val) => {
+    if (isEdit && (newClient.existingServices || []).includes(val)) {
+      alert("Existing services cannot be removed from here. Please remove them from the individual service dashboard (Restaurant QR or Personal QR).");
+      return;
+    }
     setNewClient(prev => {
       const currentServices = prev.services || [];
       const isSelected = currentServices.includes(val);
@@ -270,8 +276,9 @@ const AdminDashboard = () => {
                     <button
                       className={`btn btn-sm border d-flex align-items-center justify-content-center p-2 rounded-circle shadow-sm mx-auto ${client.email ? 'bg-light text-muted' : 'btn-light text-dark'}`}
                       onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/setup/${client.qrToken}`);
-                        alert('General Setup link copied! Send this to the client.');
+                        const tokenToUse = client.setupToken || client.qrToken;
+                        navigator.clipboard.writeText(`${window.location.origin}/setup/${tokenToUse}`);
+                        alert('Secure Setup link copied! Send this to the client.');
                       }}
                       disabled={!!client.email}
                       title={client.email ? "Setup already completed" : "Copy Setup Link"}
@@ -341,18 +348,23 @@ const AdminDashboard = () => {
                     
                     {showServiceDropdown && (
                       <div className="position-absolute w-100 bg-white border rounded shadow mt-1" style={{ zIndex: 1055 }}>
-                        {AVAILABLE_SERVICES.map((srv, idx) => (
-                          <label key={srv.id} className={`d-flex align-items-center gap-2 p-3 ${idx !== AVAILABLE_SERVICES.length - 1 ? 'border-bottom' : ''} m-0`} style={{ cursor: 'pointer' }}>
-                            <input 
-                              type="checkbox" 
-                              className="form-check-input mt-0"
-                              checked={newClient.services.includes(srv.id)}
-                              onChange={() => handleServiceToggle(srv.id)}
-                            />
-                            <span className="fw-bold text-dark">{srv.name}</span>
-                            <span className="badge bg-light text-success ms-auto">₹{srv.price.toLocaleString()}/mo</span>
-                          </label>
-                        ))}
+                        {AVAILABLE_SERVICES.map((srv, idx) => {
+                          const isExisting = isEdit && (newClient.existingServices || []).includes(srv.id);
+                          return (
+                            <label key={srv.id} className={`d-flex align-items-center gap-2 p-3 ${idx !== AVAILABLE_SERVICES.length - 1 ? 'border-bottom' : ''} m-0`} style={{ cursor: isExisting ? 'not-allowed' : 'pointer' }}>
+                              <input 
+                                type="checkbox" 
+                                className="form-check-input mt-0"
+                                checked={newClient.services.includes(srv.id)}
+                                disabled={isExisting}
+                                onChange={() => handleServiceToggle(srv.id)}
+                              />
+                              <span className="fw-bold text-dark">{srv.name}</span>
+                              {isExisting && <span className="badge bg-secondary-subtle text-secondary small ms-1">Active (Remove from service page)</span>}
+                              <span className="badge bg-light text-success ms-auto">₹{srv.price.toLocaleString()}/mo</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

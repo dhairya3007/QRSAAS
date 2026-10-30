@@ -37,13 +37,8 @@ const AdminLayout = () => {
       <div className="d-flex align-items-center justify-content-center min-vh-100" style={{ background: '#f8f9fc' }}>
         <SessionConflictModal
           isOpen={true}
-          currentUser={conflictingUser}
-          targetAction="admin"
-          onStay={() => navigate(getDashboardPathForUser(conflictingUser))}
-          onProceed={() => {
-            authService.logout();
-            navigate('/login');
-          }}
+          message="You are signed in as a Client. Only Super Admins can access this area."
+          onOk={() => navigate(getDashboardPathForUser(conflictingUser))}
         />
       </div>
     );

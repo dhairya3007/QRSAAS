@@ -52,6 +52,9 @@ export const authService = {
    * Gets cached user from localStorage
    */
   getCurrentUser: () => {
+    if (!apiClient.getAuthToken()) {
+      return null;
+    }
     const userStr = localStorage.getItem('auth_user');
     if (!userStr) return null;
     try {
@@ -127,7 +130,7 @@ export const authService = {
    * Checks whether a valid auth token is present
    */
   isAuthenticated: () => {
-    return Boolean(localStorage.getItem('auth_token'));
+    return Boolean(apiClient.getAuthToken());
   },
 };
 

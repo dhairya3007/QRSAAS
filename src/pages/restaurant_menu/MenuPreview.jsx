@@ -36,7 +36,9 @@ const MenuPreview = () => {
 
     if (token) {
       // Increment scan count once per visit — guard prevents re-firing on polling/sync
-      if (!hasScannedRef.current) {
+      const searchParams = new URLSearchParams(window.location.search);
+      const isPreview = Boolean(searchParams.get('previewTheme') || searchParams.get('preview'));
+      if (!hasScannedRef.current && !isPreview) {
         hasScannedRef.current = true;
         publicService.incrementScanCount(token);
       }
