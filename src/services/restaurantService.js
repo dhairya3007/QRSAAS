@@ -88,6 +88,19 @@ export const restaurantService = {
     return res;
   },
 
+  /**
+   * Toggles category active/deactive status
+   * @param {string} id
+   * @param {string} [clientId]
+   */
+  toggleCategoryStatus: async (id, clientId = null) => {
+    const params = clientId ? { clientId } : {};
+    const res = await apiClient.patch(`/Categories/${id}/toggle-status`, {}, { params });
+    syncService.notify('categories');
+    syncService.notify('dishes');
+    return res;
+  },
+
   // --- DISH TYPES ---
 
   /**
@@ -119,6 +132,19 @@ export const restaurantService = {
     const params = clientId ? { clientId } : {};
     const res = await apiClient.delete(`/dish-types/${id}`, params);
     syncService.notify('dishTypes');
+    return res;
+  },
+
+  /**
+   * Toggles dish type active/deactive status
+   * @param {string} id
+   * @param {string} [clientId]
+   */
+  toggleDishTypeStatus: async (id, clientId = null) => {
+    const params = clientId ? { clientId } : {};
+    const res = await apiClient.patch(`/dish-types/${id}/toggle-status`, {}, { params });
+    syncService.notify('dishTypes');
+    syncService.notify('dishes');
     return res;
   },
 

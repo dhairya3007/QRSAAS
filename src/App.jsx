@@ -11,7 +11,6 @@ import ClientSetup from './pages/ClientSetup';
 // Client Dashboard Pages
 import RestaurantMenuDashboard from './pages/restaurant_menu/RestaurantMenuDashboard';
 import BusinessDetails from './pages/restaurant_menu/BusinessDetails';
-import CategoryManagement from './pages/restaurant_menu/CategoryManagement';
 import DishManagement from './pages/restaurant_menu/DishManagement';
 
 // Personal QR Dashboard Pages
@@ -45,7 +44,7 @@ function App() {
         <Route path="/restaurant_menu_dashboard" element={<DashboardLayout />}>
           <Route index element={<RestaurantMenuDashboard />} />
           <Route path="business" element={<BusinessDetails />} />
-          <Route path="categories" element={<CategoryManagement />} />
+          <Route path="categories" element={<Navigate to="/restaurant_menu_dashboard" replace />} />
           <Route path="dishes" element={<DishManagement />} />
 
           <Route path="profile" element={<Profile />} />

@@ -156,14 +156,24 @@ const RestaurantMenuDashboard = () => {
     }
   };
 
-  const handleDeleteCategory = async (id) => {
-    if (window.confirm("Are you sure you want to delete this category?")) {
-      try {
-        await restaurantService.deleteCategory(id);
-        await fetchData();
-      } catch (err) {
-        alert("Failed to delete category: " + (err.message || 'Server error'));
+  const handleToggleCategoryStatus = async (cat) => {
+    if (cat.isActive !== false) {
+      const activeUsingDishes = dishes.filter(d => d.categoryId === cat.id && d.isActive);
+      if (activeUsingDishes.length > 0) {
+        const dishNames = activeUsingDishes.slice(0, 3).map(d => d.name).join(', ');
+        const extraCount = activeUsingDishes.length > 3 ? ` and ${activeUsingDishes.length - 3} more` : '';
+        const confirmed = window.confirm(
+          `Deactivating '${cat.name}' will also deactivate ${activeUsingDishes.length} dish(es) currently using it (${dishNames}${extraCount}) in your menu.\n\nDo you want to proceed?`
+        );
+        if (!confirmed) return;
       }
+    }
+
+    try {
+      await restaurantService.toggleCategoryStatus(cat.id);
+      await fetchData();
+    } catch (err) {
+      alert("Failed to update category status: " + (err.message || 'Server error'));
     }
   };
 
@@ -181,15 +191,26 @@ const RestaurantMenuDashboard = () => {
     }
   };
 
-  const handleDeleteDishType = async (id) => {
-    if (window.confirm("Are you sure you want to delete this dish type?")) {
-      try {
-        await restaurantService.deleteDishType(id);
-        const updatedTypes = await restaurantService.getDishTypes();
-        setDishTypes(Array.isArray(updatedTypes) ? updatedTypes : []);
-      } catch (err) {
-        alert("Failed to delete dish type: " + (err.message || 'Server error'));
+  const handleToggleDishTypeStatus = async (type) => {
+    if (type.isActive !== false) {
+      const activeUsingDishes = dishes.filter(d => d.type === type.name && d.isActive);
+      if (activeUsingDishes.length > 0) {
+        const dishNames = activeUsingDishes.slice(0, 3).map(d => d.name).join(', ');
+        const extraCount = activeUsingDishes.length > 3 ? ` and ${activeUsingDishes.length - 3} more` : '';
+        const confirmed = window.confirm(
+          `Deactivating '${type.name}' will also deactivate ${activeUsingDishes.length} dish(es) currently using it (${dishNames}${extraCount}) in your menu.\n\nDo you want to proceed?`
+        );
+        if (!confirmed) return;
       }
+    }
+
+    try {
+      await restaurantService.toggleDishTypeStatus(type.id);
+      const updatedTypes = await restaurantService.getDishTypes();
+      setDishTypes(Array.isArray(updatedTypes) ? updatedTypes : []);
+      await fetchData();
+    } catch (err) {
+      alert("Failed to update dish type status: " + (err.message || 'Server error'));
     }
   };
 
@@ -506,9 +527,23 @@ const RestaurantMenuDashboard = () => {
                         <ul className="list-group">
                           {categories.map(cat => (
                             <li key={cat.id} className="list-group-item d-flex justify-content-between align-items-center border-0 px-0 border-bottom">
-                              <span className="fw-bold">{cat.name}</span>
-                              <button onClick={() => handleDeleteCategory(cat.id)} className="btn btn-sm text-danger" title="Delete Category">
-                                <Trash2 size={16} />
+                              <div className="d-flex align-items-center gap-2">
+                                <span className={`fw-bold ${cat.isActive === false ? 'text-muted text-decoration-line-through' : 'text-dark'}`}>{cat.name}</span>
+                                {cat.isActive === false && (
+                                  <span className="badge bg-secondary-subtle text-secondary small">Inactive</span>
+                                )}
+                              </div>
+                              <button 
+                                type="button"
+                                onClick={() => handleToggleCategoryStatus(cat)} 
+                                className="btn btn-sm p-0 border-0 bg-transparent" 
+                                title={cat.isActive === false ? "Click to Activate Category" : "Click to Deactivate Category"}
+                              >
+                                {cat.isActive === false ? (
+                                  <ToggleLeft size={28} className="text-muted" />
+                                ) : (
+                                  <ToggleRight size={28} style={{ color: '#5e35b1' }} />
+                                )}
                               </button>
                             </li>
                           ))}
@@ -536,10 +571,22 @@ const RestaurantMenuDashboard = () => {
                           {dishTypes.map(type => (
                             <li key={type.id} className="list-group-item d-flex justify-content-between align-items-center border-0 px-0 border-bottom">
                               <div className="d-flex align-items-center gap-2">
-                                <span className="badge bg-secondary-subtle text-dark border px-2 py-1">{type.name}</span>
+                                <span className={`badge border px-2 py-1 ${type.isActive === false ? 'bg-light text-muted text-decoration-line-through' : 'bg-secondary-subtle text-dark'}`}>{type.name}</span>
+                                {type.isActive === false && (
+                                  <span className="badge bg-secondary-subtle text-secondary small">Inactive</span>
+                                )}
                               </div>
-                              <button onClick={() => handleDeleteDishType(type.id)} className="btn btn-sm text-danger" title="Delete Dish Type">
-                                <Trash2 size={16} />
+                              <button 
+                                type="button"
+                                onClick={() => handleToggleDishTypeStatus(type)} 
+                                className="btn btn-sm p-0 border-0 bg-transparent" 
+                                title={type.isActive === false ? "Click to Activate Dish Type" : "Click to Deactivate Dish Type"}
+                              >
+                                {type.isActive === false ? (
+                                  <ToggleLeft size={28} className="text-muted" />
+                                ) : (
+                                  <ToggleRight size={28} style={{ color: '#5e35b1' }} />
+                                )}
                               </button>
                             </li>
                           ))}
