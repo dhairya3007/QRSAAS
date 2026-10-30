@@ -111,7 +111,8 @@ public class RestaurantMenuService : IRestaurantMenuService
         {
             Id = c.Id.ToString(),
             Name = c.Name,
-            ClientId = c.ClientId.ToString()
+            ClientId = c.ClientId.ToString(),
+            IsActive = c.IsActive
         }).ToList();
     }
 
@@ -120,7 +121,8 @@ public class RestaurantMenuService : IRestaurantMenuService
         var category = new Category
         {
             ClientId = clientId,
-            Name = name
+            Name = name,
+            IsActive = true
         };
 
         _context.Categories.Add(category);
@@ -130,7 +132,8 @@ public class RestaurantMenuService : IRestaurantMenuService
         {
             Id = category.Id.ToString(),
             Name = category.Name,
-            ClientId = category.ClientId.ToString()
+            ClientId = category.ClientId.ToString(),
+            IsActive = category.IsActive
         };
     }
 
@@ -148,6 +151,32 @@ public class RestaurantMenuService : IRestaurantMenuService
         return true;
     }
 
+    public async Task<(bool IsActive, int AffectedDishesCount)> ToggleCategoryStatusAsync(Guid clientId, Guid categoryId)
+    {
+        var category = await _context.Categories
+            .Include(c => c.Dishes)
+            .FirstOrDefaultAsync(c => c.Id == categoryId && c.ClientId == clientId);
+
+        if (category == null) throw new KeyNotFoundException("Category not found.");
+
+        category.IsActive = !category.IsActive;
+        int affectedCount = 0;
+
+        // If category is being deactivated, automatically deactivate all its dishes in the menu
+        if (!category.IsActive)
+        {
+            var activeDishes = category.Dishes.Where(d => d.IsActive).ToList();
+            affectedCount = activeDishes.Count;
+            foreach (var dish in activeDishes)
+            {
+                dish.IsActive = false;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return (category.IsActive, affectedCount);
+    }
+
     public async Task<List<DishTypeDto>> GetDishTypesAsync(Guid clientId)
     {
         var types = await _context.DishTypes
@@ -159,7 +188,8 @@ public class RestaurantMenuService : IRestaurantMenuService
         {
             Id = t.Id.ToString(),
             Name = t.Name,
-            ClientId = t.ClientId.ToString()
+            ClientId = t.ClientId.ToString(),
+            IsActive = t.IsActive
         }).ToList();
     }
 
@@ -168,7 +198,8 @@ public class RestaurantMenuService : IRestaurantMenuService
         var dishType = new DishType
         {
             ClientId = clientId,
-            Name = name
+            Name = name,
+            IsActive = true
         };
 
         _context.DishTypes.Add(dishType);
@@ -178,7 +209,8 @@ public class RestaurantMenuService : IRestaurantMenuService
         {
             Id = dishType.Id.ToString(),
             Name = dishType.Name,
-            ClientId = dishType.ClientId.ToString()
+            ClientId = dishType.ClientId.ToString(),
+            IsActive = dishType.IsActive
         };
     }
 
@@ -192,6 +224,34 @@ public class RestaurantMenuService : IRestaurantMenuService
         _context.DishTypes.Remove(dishType);
         await _context.SaveChangesAsync();
         return true;
+    }
+
+    public async Task<(bool IsActive, int AffectedDishesCount)> ToggleDishTypeStatusAsync(Guid clientId, Guid dishTypeId)
+    {
+        var dishType = await _context.DishTypes
+            .FirstOrDefaultAsync(t => t.Id == dishTypeId && t.ClientId == clientId);
+
+        if (dishType == null) throw new KeyNotFoundException("Dish type not found.");
+
+        dishType.IsActive = !dishType.IsActive;
+        int affectedCount = 0;
+
+        // If dish type is being deactivated, automatically deactivate all dishes of this type
+        if (!dishType.IsActive)
+        {
+            var activeDishes = await _context.Dishes
+                .Where(d => d.ClientId == clientId && d.Type == dishType.Name && d.IsActive)
+                .ToListAsync();
+
+            affectedCount = activeDishes.Count;
+            foreach (var dish in activeDishes)
+            {
+                dish.IsActive = false;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return (dishType.IsActive, affectedCount);
     }
 
     public async Task<List<DishDto>> GetDishesAsync(Guid clientId)

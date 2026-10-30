@@ -82,7 +82,7 @@ public class PublicQrService : IPublicQrService
         }
 
         var categories = await _context.Categories
-            .Where(c => c.ClientId == client.Id)
+            .Where(c => c.ClientId == client.Id && c.IsActive)
             .OrderBy(c => c.CreatedAtUtc)
             .ToListAsync();
 

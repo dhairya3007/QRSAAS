@@ -49,6 +49,23 @@ public class DishTypesController : ControllerBase
         return Ok(created);
     }
 
+    [HttpPatch("{id:guid}/toggle-status")]
+    public async Task<IActionResult> ToggleStatus(Guid id, [FromQuery] Guid? clientId = null)
+    {
+        var targetClientId = GetEffectiveClientId(clientId);
+        if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
+
+        try
+        {
+            var result = await _menuService.ToggleDishTypeStatusAsync(targetClientId.Value, id);
+            return Ok(new { isActive = result.IsActive, affectedDishesCount = result.AffectedDishesCount });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { message = "Dish type not found." });
+        }
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, [FromQuery] Guid? clientId = null)
     {

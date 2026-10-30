@@ -8,4 +8,5 @@ public class DishType : BaseEntity
     public virtual Client Client { get; set; } = null!;
 
     public string Name { get; set; } = string.Empty;
+    public bool IsActive { get; set; } = true;
 }

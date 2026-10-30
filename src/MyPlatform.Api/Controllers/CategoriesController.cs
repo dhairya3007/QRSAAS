@@ -49,6 +49,23 @@ public class CategoriesController : ControllerBase
         return Ok(created);
     }
 
+    [HttpPatch("{id:guid}/toggle-status")]
+    public async Task<IActionResult> ToggleStatus(Guid id, [FromQuery] Guid? clientId = null)
+    {
+        var targetClientId = GetEffectiveClientId(clientId);
+        if (targetClientId == null) return Unauthorized(new { message = "Client identity required." });
+
+        try
+        {
+            var result = await _menuService.ToggleCategoryStatusAsync(targetClientId.Value, id);
+            return Ok(new { isActive = result.IsActive, affectedDishesCount = result.AffectedDishesCount });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { message = "Category not found." });
+        }
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, [FromQuery] Guid? clientId = null)
     {

@@ -14,11 +14,13 @@ public interface IRestaurantMenuService
     Task<List<CategoryDto>> GetCategoriesAsync(Guid clientId);
     Task<CategoryDto> AddCategoryAsync(Guid clientId, string name);
     Task<bool> DeleteCategoryAsync(Guid clientId, Guid categoryId);
+    Task<(bool IsActive, int AffectedDishesCount)> ToggleCategoryStatusAsync(Guid clientId, Guid categoryId);
 
     // Dynamic Dish Types
     Task<List<DishTypeDto>> GetDishTypesAsync(Guid clientId);
     Task<DishTypeDto> AddDishTypeAsync(Guid clientId, string name);
     Task<bool> DeleteDishTypeAsync(Guid clientId, Guid dishTypeId);
+    Task<(bool IsActive, int AffectedDishesCount)> ToggleDishTypeStatusAsync(Guid clientId, Guid dishTypeId);
 
     // Dishes
     Task<List<DishDto>> GetDishesAsync(Guid clientId);
